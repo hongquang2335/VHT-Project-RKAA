@@ -1,0 +1,2 @@
+timestamp,period_end,ne_id,kpi_name,value,unit,quality_flag
+invalid-timestamp,2026-07-08T00:15:00+07:00,NE-001,erab_success_rate,98.7,percent,good
