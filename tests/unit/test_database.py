@@ -22,6 +22,7 @@ app:
   name: "RKAA Test"
   timezone: "UTC"
   granularity_minutes: 15
+  baseline_min_clean_days: 14
   day_periods:
     busy:
       start: "07:00"

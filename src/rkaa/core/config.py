@@ -19,6 +19,7 @@ class AppSettings(BaseModel):
     name: str
     timezone: str
     granularity_minutes: int
+    baseline_min_clean_days: int
     day_periods: "DayPeriodSettings"
 
 

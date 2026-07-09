@@ -20,6 +20,7 @@ app:
   name: "RKAA Test"
   timezone: "UTC"
   granularity_minutes: 30
+  baseline_min_clean_days: 14
   day_periods:
     busy:
       start: "07:00"
@@ -43,6 +44,7 @@ logging:
     assert settings.app.name == "RKAA Test"
     assert settings.app.timezone == "UTC"
     assert settings.app.granularity_minutes == 30
+    assert settings.app.baseline_min_clean_days == 14
     assert settings.app.day_periods.busy.start.isoformat() == "07:00:00"
     assert settings.app.day_periods.off_peak.end.isoformat() == "07:00:00"
     assert settings.database.url == "sqlite:///./test.db"
@@ -60,6 +62,7 @@ app:
   name: "RKAA Test"
   timezone: "UTC"
   granularity_minutes: 15
+  baseline_min_clean_days: 14
   day_periods:
     busy:
       start: "07:00"
@@ -78,12 +81,14 @@ logging:
     )
     monkeypatch.setenv("RKAA_APP__TIMEZONE", "Asia/Ho_Chi_Minh")
     monkeypatch.setenv("RKAA_APP__GRANULARITY_MINUTES", "60")
+    monkeypatch.setenv("RKAA_APP__BASELINE_MIN_CLEAN_DAYS", "21")
     monkeypatch.setenv("RKAA_APP__DAY_PERIODS__BUSY__START", "06:00")
 
     settings = load_settings(config_path)
 
     assert settings.app.timezone == "Asia/Ho_Chi_Minh"
     assert settings.app.granularity_minutes == 60
+    assert settings.app.baseline_min_clean_days == 21
     assert settings.app.day_periods.busy.start.isoformat() == "06:00:00"
 
 
@@ -115,6 +120,7 @@ app:
   name: "RKAA Test"
   timezone: "UTC"
   granularity_minutes: "fifteen"
+  baseline_min_clean_days: 14
   day_periods:
     busy:
       start: "07:00"
