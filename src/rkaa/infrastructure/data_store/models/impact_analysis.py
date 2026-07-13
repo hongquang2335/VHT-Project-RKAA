@@ -48,3 +48,5 @@ class KPIDelta(Base):
     p_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     change_direction: Mapped[str] = mapped_column(String(32), nullable=False)
     anomaly_flag: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    anomaly_reasons: Mapped[list[str]] = mapped_column(JSON, nullable=False)

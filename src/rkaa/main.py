@@ -11,7 +11,11 @@ from rkaa.core.config import load_settings
 from rkaa.core.error_handlers import register_error_handlers
 from rkaa.core.exceptions import NotFoundError
 from rkaa.core.logging import configure_logging, new_correlation_id, set_correlation_id
+from rkaa.presentation.api.baseline import router as baseline_router
 from rkaa.presentation.api.data_quality_report import router as data_quality_report_router
+from rkaa.presentation.api.impact import router as impact_router
+from rkaa.presentation.api.impact_analysis import router as impact_analysis_router
+from rkaa.presentation.api.knowledge import router as knowledge_router
 from rkaa.presentation.api.kpi_import import router as kpi_import_router
 
 settings = load_settings()
@@ -36,6 +40,10 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CorrelationIdMiddleware)
 app.include_router(kpi_import_router)
 app.include_router(data_quality_report_router)
+app.include_router(baseline_router)
+app.include_router(impact_router)
+app.include_router(impact_analysis_router)
+app.include_router(knowledge_router)
 
 
 @app.get("/health")

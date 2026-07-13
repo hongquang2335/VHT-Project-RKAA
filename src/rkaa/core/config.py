@@ -20,6 +20,7 @@ class AppSettings(BaseModel):
     timezone: str
     granularity_minutes: int
     baseline_min_clean_days: int
+    anomaly_zscore_threshold: float = 3.0
     day_periods: "DayPeriodSettings"
 
 

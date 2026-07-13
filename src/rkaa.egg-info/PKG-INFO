@@ -1,0 +1,42 @@
+Metadata-Version: 2.4
+Name: rkaa
+Version: 0.1.0
+Summary: RAN KPI Anomaly Analyzer
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: pydantic<3.0,>=2.8
+Requires-Dist: sqlalchemy<3.0,>=2.0
+Requires-Dist: uvicorn[standard]<1.0,>=0.30
+Provides-Extra: dev
+Requires-Dist: coverage<8.0,>=7.6; extra == "dev"
+Requires-Dist: httpx<1.0,>=0.27; extra == "dev"
+Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.6; extra == "dev"
+
+# RKAA
+
+RKAA la bo khung ban dau cho du an RAN KPI Anomaly Analyzer.
+
+## Yeu cau
+
+- Python 3.11+
+
+## Chay local
+
+```bash
+uvicorn rkaa.main:app --reload
+```
+
+## Kiem tra chat luong
+
+```bash
+ruff check .
+pytest
+coverage run -m pytest
+coverage report
+```
+
+## Health check
+
+`GET /health` tra ve HTTP 200 va trang thai `ok`.

@@ -68,6 +68,8 @@ def test_analysis_models_create_expected_columns() -> None:
         "p_value",
         "change_direction",
         "anomaly_flag",
+        "severity",
+        "anomaly_reasons",
     }
 
 
@@ -101,6 +103,8 @@ def test_analysis_models_persist_srs_fields() -> None:
             p_value=0.012,
             change_direction="decrease",
             anomaly_flag="anomalous",
+            severity="critical",
+            anomaly_reasons=["threshold_critical", "zscore_anomaly"],
         )
         session.add(delta)
         session.commit()
@@ -121,3 +125,5 @@ def test_analysis_models_persist_srs_fields() -> None:
     assert created_delta.p_value == 0.012
     assert created_delta.change_direction == "decrease"
     assert created_delta.anomaly_flag == "anomalous"
+    assert created_delta.severity == "critical"
+    assert created_delta.anomaly_reasons == ["threshold_critical", "zscore_anomaly"]

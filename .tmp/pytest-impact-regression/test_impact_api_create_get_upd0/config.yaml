@@ -1,0 +1,19 @@
+app:
+  name: "RKAA Test"
+  timezone: "UTC"
+  granularity_minutes: 15
+  baseline_min_clean_days: 14
+  day_periods:
+    busy:
+      start: "07:00"
+      end: "10:00"
+    transition:
+      start: "10:00"
+      end: "17:00"
+    off_peak:
+      start: "17:00"
+      end: "07:00"
+database:
+  url: "sqlite:///C:/Users/quang/Desktop/thuc tap/RKAA/.tmp/pytest-impact-regression/test_impact_api_create_get_upd0/impact-api.sqlite3"
+logging:
+  level: "INFO"

@@ -11,6 +11,5 @@ alembic.ini
 plan_agent.txt
 plan_codex.txt
 pyproject.toml
-README.md
 SRS_RAN_KPI_Anomaly_Analyzer_VI.MD
 *\__pycache__
