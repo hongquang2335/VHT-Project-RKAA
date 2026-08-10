@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+secrets/
+!secrets/minio.local.example
+*.local
+tmp/
+output/
+*.duckdb
+*.db

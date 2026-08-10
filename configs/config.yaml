@@ -1,0 +1,9 @@
+minio:
+  parquet_prefix: "v3/*.parquet"
+collection:
+  granularity_minutes: 15
+  datetime_column: "datetime"
+  ne_column: "ne"
+  cellname_column: "cellname"
+  default_limit: 1000
+  output_path: "tmp/minio_kpi_long.csv"
