@@ -1,0 +1,8 @@
+kpis:
+  - {source_column: "ENDC SSR VTNET (%)", canonical_name: "ENDC_SSR", unit: "%", direction_preference: "higher_is_better"}
+  - {source_column: "ENDC CDR VTNET (%)", canonical_name: "ENDC_CDR", unit: "%", direction_preference: "lower_is_better"}
+  - {source_column: "NR RASR VTNET (%)", canonical_name: "NR_RASR", unit: "%", direction_preference: "higher_is_better"}
+  - {source_column: "PSCell Change Intra-SgNB SR VTNET (%)", canonical_name: "PSCELL_CHANGE_INTRA_SGNB_SR", unit: "%", direction_preference: "higher_is_better"}
+  - {source_column: "PSCell Change Inter-SgNB SR VTNET (%)", canonical_name: "PSCELL_CHANGE_INTER_SGNB_SR", unit: "%", direction_preference: "higher_is_better"}
+  - {source_column: "Max RRC Connected NR ENDC User (UE)", canonical_name: "MAX_RRC_CONNECTED_NR_ENDC_USER", unit: "UE", direction_preference: "informational"}
+  - {source_column: "NSA PS Traffic (GBytes)", canonical_name: "NSA_PS_TRAFFIC", unit: "GBytes", direction_preference: "informational"}

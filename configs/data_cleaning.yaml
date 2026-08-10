@@ -1,0 +1,77 @@
+filters:
+  # Bước 1: loại null/NaN, +/-inf và sentinel đã được xác nhận.
+  null_sentinel:
+    enabled: true
+    global_values: []
+    per_kpi: {}
+
+  # Bước 2: loại dữ liệu trong Impact Event của FR-103.
+  impact_window:
+    enabled: true
+    match_mode: exact_or_prefix
+    excluded_impact_types:
+      - CONFIGURATION_CHANGE
+      - SOFTWARE_UPGRADE
+      - CELL_RESET
+      - NE_RESTART
+      - ANTENNA_ADJUSTMENT
+      - FREQUENCY_CHANGE
+      - POWER_ADJUSTMENT
+      - FEATURE_ACTIVATION
+
+  # Bước 3: mã nguồn detector có sẵn nhưng mặc định tắt vì 7 KPI hiện tại
+  # không phải cumulative counter. Bật khi eligible_metrics có counter phù hợp.
+  restart:
+    enabled: false
+    eligible_metrics: []
+    reset_max_value: 100
+    min_previous_value: 1000
+    min_drop_ratio: 0.90
+    confirmation_points: 2
+    concurrent_window_minutes: 15
+    min_concurrent_counters: 2
+    post_restart_grace_minutes: 15
+
+  # Bước 4: IQR bật mặc định. Z-score được cài sẵn nhưng để OFF cho tới khi
+  # có đủ dữ liệu và muốn dùng chuẩn hóa thống kê theo từng NE + KPI.
+  statistical_outlier:
+    enabled: true
+    combination: any
+
+    iqr:
+      enabled: true
+      multiplier: 1.5
+      min_samples: 24
+      insufficient_samples: skip
+      zero_iqr: skip
+
+    z_score:
+      enabled: false
+      threshold: 3.0
+      min_samples: 100
+      insufficient_samples: skip
+      zero_std: skip
+
+  # Bước 5: rule miền giá trị hợp lệ theo từng KPI.
+  custom_rule:
+    enabled: true
+    rules:
+      ENDC_SSR:
+        min: 0
+        max: 100
+      ENDC_CDR:
+        min: 0
+        max: 100
+      NR_RASR:
+        min: 0
+        max: 100
+      PSCELL_CHANGE_INTRA_SGNB_SR:
+        min: 0
+        max: 100
+      PSCELL_CHANGE_INTER_SGNB_SR:
+        min: 0
+        max: 100
+      MAX_RRC_CONNECTED_NR_ENDC_USER:
+        min: 0
+      NSA_PS_TRAFFIC:
+        min: 0

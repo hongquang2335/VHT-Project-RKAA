@@ -1,0 +1,45 @@
+impact_types:
+  - code: CONFIGURATION_CHANGE
+    display_name: Configuration Change
+    cli_reference: CHG
+    description: Thay đổi tham số cấu hình
+
+  - code: SOFTWARE_UPGRADE
+    display_name: Software Upgrade
+    cli_reference: ACT SW
+    description: Nâng cấp firmware/software
+
+  - code: CELL_RESET
+    display_name: Cell Reset
+    cli_reference: RST SW
+    description: Reset cell
+
+  - code: NE_RESTART
+    display_name: NE Restart
+    cli_reference: RBT DU
+    description: Khởi động lại NE
+
+  - code: ANTENNA_ADJUSTMENT
+    display_name: Antenna Adjustment
+    cli_reference: CHG TILT
+    description: Điều chỉnh anten
+
+  - code: FREQUENCY_CHANGE
+    display_name: Frequency Change
+    cli_reference: CHG SSB
+    description: Thay đổi tần số
+
+  - code: POWER_ADJUSTMENT
+    display_name: Power Adjustment
+    cli_reference: CHG RRU_POWER
+    description: Điều chỉnh công suất phát
+
+  - code: FEATURE_ACTIVATION
+    display_name: Feature Activation
+    cli_reference: "CHG FUNCX: Enable=1"
+    description: Kích hoạt tính năng mới
+
+  - code: AUDIT
+    display_name: Audit
+    cli_reference: SHW
+    description: Truy vấn thông tin, không thay đổi

@@ -1,0 +1,4 @@
+# Copy thành configs/stations.yaml rồi thay bằng danh sách trạm cần lấy dữ liệu.
+stations:
+  - gHM00001
+  - gHM00072
