@@ -16,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 
 from rkaa.domain.impact_manager.models import (  # noqa: E402
     CreateImpactRequest,
+    EventCategory,
     ImpactEvent,
     ImpactStatus,
     UpdateImpactRequest,
@@ -35,7 +36,7 @@ from rkaa.infrastructure.data_store.impact_repository import (  # noqa: E402
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="FR-103: quản lý Impact Event nhập thủ công",
+        description="FR-103/FR-202: quản lý Impact Event, Maintenance và Special Event",
     )
     parser.add_argument(
         "--database",
@@ -68,6 +69,25 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--type", required=True, dest="impact_type")
     create.add_argument("--description", required=True)
     create.add_argument("--operator", required=True)
+    create.add_argument(
+        "--category",
+        choices=[category.value for category in EventCategory],
+        default=EventCategory.IMPACT.value,
+        dest="event_category",
+        help="FR-202: IMPACT, MAINTENANCE hoặc SPECIAL_EVENT",
+    )
+    create_policy = create.add_mutually_exclusive_group()
+    create_policy.add_argument(
+        "--exclude-from-baseline",
+        action="store_true",
+        dest="exclude_from_baseline",
+        default=None,
+    )
+    create_policy.add_argument(
+        "--include-in-baseline",
+        action="store_false",
+        dest="exclude_from_baseline",
+    )
 
     show = subparsers.add_parser("show", help="Xem một Impact Event")
     show.add_argument("--id", required=True, dest="impact_id")
@@ -81,6 +101,24 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[status.value for status in ImpactStatus],
         default=None,
     )
+    list_command.add_argument(
+        "--category",
+        choices=[category.value for category in EventCategory],
+        default=None,
+        dest="event_category",
+    )
+    list_policy = list_command.add_mutually_exclusive_group()
+    list_policy.add_argument(
+        "--exclude-from-baseline",
+        action="store_true",
+        dest="exclude_from_baseline",
+        default=None,
+    )
+    list_policy.add_argument(
+        "--include-in-baseline",
+        action="store_false",
+        dest="exclude_from_baseline",
+    )
     list_command.add_argument("--include-deleted", action="store_true")
 
     update = subparsers.add_parser("update", help="Sửa Impact Event")
@@ -93,6 +131,30 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--type", default=None, dest="impact_type")
     update.add_argument("--description", default=None)
     update.add_argument("--operator", default=None)
+    update.add_argument(
+        "--category",
+        choices=[category.value for category in EventCategory],
+        default=None,
+        dest="event_category",
+    )
+    update_policy = update.add_mutually_exclusive_group()
+    update_policy.add_argument(
+        "--exclude-from-baseline",
+        action="store_true",
+        dest="exclude_from_baseline",
+        default=None,
+    )
+    update_policy.add_argument(
+        "--include-in-baseline",
+        action="store_false",
+        dest="exclude_from_baseline",
+    )
+    update_policy.add_argument(
+        "--legacy-baseline-policy",
+        action="store_true",
+        dest="clear_exclude_from_baseline",
+        help="Đưa policy về legacy: FR-201 quyết định theo impact_type",
+    )
 
     close = subparsers.add_parser("close", help="Đóng event ONGOING")
     close.add_argument("--id", required=True, dest="impact_id")
@@ -127,6 +189,10 @@ def print_event(event: ImpactEvent, display_timezone: str) -> None:
         "t1": _format_datetime(event.t1_utc, display_timezone),
         "t2": _format_datetime(event.t2_utc, display_timezone),
         "impact_type": event.impact_type,
+        "event_category": event.event_category.value,
+        "exclude_from_baseline": (
+            "legacy" if event.exclude_from_baseline is None else str(event.exclude_from_baseline)
+        ),
         "description": event.description,
         "operator": event.operator,
         "source": event.source.value,
@@ -151,7 +217,7 @@ def print_event_list(events: list[ImpactEvent], display_timezone: str) -> None:
 
     header = (
         f"{'impact_id':36}  {'ne_id':14}  {'cell_id':18}  "
-        f"{'t1':25}  {'t2':25}  {'status':9}  impact_type"
+        f"{'t1':25}  {'t2':25}  {'status':9}  {'category':13}  impact_type"
     )
     print(header)
     print("-" * len(header))
@@ -161,7 +227,7 @@ def print_event_list(events: list[ImpactEvent], display_timezone: str) -> None:
         print(
             f"{event.impact_id:36}  {event.ne_id[:14]:14}  "
             f"{(event.cell_id or '-')[:18]:18}  {t1:25}  {t2:25}  "
-            f"{event.status.value:9}  {event.impact_type}"
+            f"{event.status.value:9}  {event.event_category.value:13}  {event.impact_type}"
         )
 
 
@@ -180,6 +246,8 @@ def run_command(
                 impact_type=args.impact_type,
                 description=args.description,
                 operator=args.operator,
+                event_category=args.event_category,
+                exclude_from_baseline=args.exclude_from_baseline,
             )
         )
         elapsed = perf_counter() - started
@@ -203,6 +271,8 @@ def run_command(
             ne_id=args.ne_id,
             cell_id=args.cell_id,
             status=args.status,
+            event_category=args.event_category,
+            exclude_from_baseline=args.exclude_from_baseline,
             include_deleted=args.include_deleted,
         )
         print_event_list(events, args.display_timezone)
@@ -220,6 +290,9 @@ def run_command(
                 impact_type=args.impact_type,
                 description=args.description,
                 operator=args.operator,
+                event_category=args.event_category,
+                exclude_from_baseline=args.exclude_from_baseline,
+                clear_exclude_from_baseline=args.clear_exclude_from_baseline,
             ),
         )
         print("Đã cập nhật Impact Event thành công")

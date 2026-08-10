@@ -109,3 +109,63 @@ def test_sqlite_create_completes_within_two_seconds(tmp_path) -> None:
 
     connection.close()
     assert elapsed <= 2.0
+
+
+def test_fr202_fields_survive_database_reopen(tmp_path) -> None:
+    from rkaa.domain.impact_manager.models import EventCategory
+
+    database_path = tmp_path / "metadata.db"
+    connection = create_sqlite_connection(database_path)
+    initialize_metadata_schema(connection)
+    repository = SQLiteImpactRepository(connection)
+    event = replace(
+        build_event("maintenance-001"),
+        event_category=EventCategory.MAINTENANCE,
+        exclude_from_baseline=True,
+    )
+    repository.create(event)
+    connection.close()
+
+    connection = create_sqlite_connection(database_path)
+    initialize_metadata_schema(connection)
+    loaded = SQLiteImpactRepository(connection).get_by_id("maintenance-001")
+    connection.close()
+
+    assert loaded is not None
+    assert loaded.event_category is EventCategory.MAINTENANCE
+    assert loaded.exclude_from_baseline is True
+
+
+def test_initialize_schema_migrates_legacy_fr103_database(tmp_path) -> None:
+    database_path = tmp_path / "legacy.db"
+    connection = create_sqlite_connection(database_path)
+    connection.execute(
+        """
+        CREATE TABLE impact_event (
+            impact_id TEXT PRIMARY KEY,
+            ne_id TEXT NOT NULL,
+            cell_id TEXT,
+            t1_utc TEXT NOT NULL,
+            t2_utc TEXT,
+            impact_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            operator TEXT NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at_utc TEXT NOT NULL,
+            updated_at_utc TEXT NOT NULL,
+            deleted_at_utc TEXT
+        )
+        """
+    )
+    connection.commit()
+
+    initialize_metadata_schema(connection)
+    columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(impact_event)").fetchall()
+    }
+    connection.close()
+
+    assert "event_category" in columns
+    assert "exclude_from_baseline" in columns

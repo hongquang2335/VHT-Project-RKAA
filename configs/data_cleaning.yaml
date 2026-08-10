@@ -5,10 +5,11 @@ filters:
     global_values: []
     per_kpi: {}
 
-  # Bước 2: loại dữ liệu trong Impact Event của FR-103.
+  # Bước 2: loại dữ liệu theo Event Calendar FR-202.
   impact_window:
     enabled: true
     match_mode: exact_or_prefix
+    # Fallback cho record FR-103 legacy chưa có exclude_from_baseline rõ ràng.
     excluded_impact_types:
       - CONFIGURATION_CHANGE
       - SOFTWARE_UPGRADE

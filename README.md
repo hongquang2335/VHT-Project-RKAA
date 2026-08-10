@@ -146,3 +146,60 @@ python scripts/run_cleaning_once.py \
 Bật/tắt từng bước lọc bằng `enabled: true/false` trong YAML. Nếu một nhóm
 `ne_id + kpi_name` không đủ `min_samples`, IQR/Z-score tự bỏ qua nhóm đó và
 không chuyển dữ liệu sang `excluded_kpi.csv`.
+
+## FR-202 — Maintenance Window / Special Event
+
+FR-202 dùng chung SQLite metadata `tmp/rkaa_metadata.db` với FR-103; SQLite chỉ lưu
+metadata event, không lưu KPI. Hai trường mới là `event_category` và
+`exclude_from_baseline`. Database FR-103 cũ được migrate tự động, không mất event.
+
+Tạo maintenance window (mặc định loại khỏi baseline):
+
+```bash
+python scripts/manage_impact.py create \
+  --ne gHM00001 \
+  --t1 "2026-08-10 01:00:00" \
+  --t2 "2026-08-10 03:00:00" \
+  --type SOFTWARE_UPGRADE \
+  --category MAINTENANCE \
+  --description "Planned maintenance" \
+  --operator engineer_a
+```
+
+`SPECIAL_EVENT` cũng mặc định `exclude_from_baseline=True`. Với `IMPACT`, nếu không
+chỉ định policy thì giữ chế độ legacy để FR-201 quyết định theo
+`filters.impact_window.excluded_impact_types`. Có thể override bằng
+`--exclude-from-baseline` hoặc `--include-in-baseline`.
+
+FR-201 gọi `EventCalendarService`, chỉ chuyển event được phép exclude thành
+`ExclusionWindow`; dữ liệu KPI gốc và metadata event vẫn được giữ.
+
+## FR-203 — Data Quality Check
+
+Chạy sau FR-101:
+
+```bash
+python scripts/run_data_quality_once.py
+```
+
+Mặc định đọc `tmp/minio_kpi_long.csv`, dùng `configs/data_quality.yaml`, và sinh:
+
+```text
+tmp/fr203/quality_checked_kpi.csv
+tmp/fr203/data_quality_issues.csv
+tmp/fr203/data_quality_summary.csv
+```
+
+FR-203 thực hiện: chuẩn hóa timestamp/value/schema, exact/conflicting duplicate,
+gap theo `ne_id + kpi_name`, range validation, và local spike bằng rolling median
++ MAD. Exact duplicate giữ một bản; conflicting duplicate và local spike chỉ được
+gắn cờ, không tự xóa. Gap > 2 giờ được in cảnh báo trên terminal.
+
+Range validation dùng lại rule từ `configs/data_cleaning.yaml` để không duy trì hai
+bộ giới hạn KPI khác nhau.
+
+Để chạy FR-201 trên output đã quality-check:
+
+```bash
+python scripts/run_cleaning_once.py --input tmp/fr203/quality_checked_kpi.csv
+```

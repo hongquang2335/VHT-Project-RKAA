@@ -1,4 +1,4 @@
-"""Các mô hình dữ liệu nghiệp vụ dùng trong FR-103."""
+"""Các mô hình dữ liệu nghiệp vụ dùng trong FR-103 và FR-202."""
 
 from __future__ import annotations
 
@@ -21,9 +21,22 @@ class ImpactSource(StrEnum):
     MANUAL = "MANUAL"
 
 
+class EventCategory(StrEnum):
+    """Phân loại sự kiện dùng cho FR-202.
+
+    IMPACT giữ tương thích với Impact Event FR-103 hiện có. MAINTENANCE và
+    SPECIAL_EVENT là hai nhóm FR-202 cần quản lý riêng để baseline có thể loại
+    dữ liệu trong các khoảng này nhưng metadata vẫn được giữ để tra cứu/chart.
+    """
+
+    IMPACT = "IMPACT"
+    MAINTENANCE = "MAINTENANCE"
+    SPECIAL_EVENT = "SPECIAL_EVENT"
+
+
 @dataclass(frozen=True, slots=True)
 class CreateImpactRequest:
-    """Dữ liệu đầu vào thô dùng để tạo Impact Event."""
+    """Dữ liệu đầu vào thô dùng để tạo Impact Event/Event Calendar entry."""
 
     ne_id: str
     t1: str
@@ -32,6 +45,10 @@ class CreateImpactRequest:
     description: str
     operator: str
     cell_id: str | None = None
+    event_category: EventCategory | str = EventCategory.IMPACT
+    # None cho phép giữ hành vi FR-103 cũ: quyết định exclude theo legacy rule.
+    # Với MAINTENANCE/SPECIAL_EVENT, service mặc định chuyển None -> True.
+    exclude_from_baseline: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +68,10 @@ class UpdateImpactRequest:
     operator: str | None = None
     cell_id: str | None = None
     clear_cell: bool = False
+    event_category: EventCategory | str | None = None
+    exclude_from_baseline: bool | None = None
+    # Khi True, cột exclude_from_baseline được đưa về NULL để dùng legacy rule.
+    clear_exclude_from_baseline: bool = False
 
     def has_changes(self) -> bool:
         """Kiểm tra yêu cầu cập nhật có chứa ít nhất một thay đổi hay không."""
@@ -65,8 +86,10 @@ class UpdateImpactRequest:
                 self.description,
                 self.operator,
                 self.cell_id,
+                self.event_category,
+                self.exclude_from_baseline,
             )
-        ) or self.clear_cell
+        ) or self.clear_cell or self.clear_exclude_from_baseline
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,3 +109,6 @@ class ImpactEvent:
     created_at_utc: datetime
     updated_at_utc: datetime
     deleted_at_utc: datetime | None = None
+    event_category: EventCategory = EventCategory.IMPACT
+    # True: luôn loại khỏi baseline; False: luôn giữ; None: legacy FR-103 rule.
+    exclude_from_baseline: bool | None = None
