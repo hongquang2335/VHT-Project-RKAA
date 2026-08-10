@@ -13,10 +13,14 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from rkaa.domain.event_calendar.service import EventCalendarService
 from rkaa.domain.noise_filter.models import ExclusionWindow
 from rkaa.domain.noise_filter.service import NoiseFilterService
 from rkaa.infrastructure.config.data_cleaning_loader import load_data_cleaning_config
-from rkaa.infrastructure.data_store.database import create_sqlite_connection
+from rkaa.infrastructure.data_store.database import (
+    create_sqlite_connection,
+    initialize_metadata_schema,
+)
 from rkaa.infrastructure.data_store.impact_repository import SQLiteImpactRepository
 
 
@@ -32,10 +36,10 @@ def _load_exclusion_windows(
     metadata_db: Path,
     allowed_impact_types: tuple[str, ...],
 ) -> tuple[list[ExclusionWindow], str]:
-    """Đọc Impact Event FR-103 ở chế độ chỉ đọc logic nghiệp vụ.
+    """Đọc Event Calendar FR-202 và chuyển sang window của FR-201.
 
-    Hàm không khởi tạo schema mới. Nếu DB chưa tồn tại hoặc chưa có bảng
-    ``impact_event``, FR-201 chỉ bỏ qua bước đọc window và tiếp tục chạy.
+    Database FR-103 cũ được migrate nhẹ để bổ sung cột FR-202. Không có KPI
+    nào được ghi vào SQLite; database này chỉ chứa metadata event.
     """
 
     if not metadata_db.exists():
@@ -43,27 +47,28 @@ def _load_exclusion_windows(
 
     connection = create_sqlite_connection(metadata_db)
     try:
+        initialize_metadata_schema(connection)
         repository = SQLiteImpactRepository(connection)
-        try:
-            events = repository.list_events(include_deleted=False)
-        except sqlite3.OperationalError as exc:
-            if "no such table" in str(exc).lower():
-                return [], "SKIPPED_IMPACT_TABLE_NOT_FOUND"
-            raise
+        calendar = EventCalendarService(repository)
+        events = calendar.list_baseline_exclusions(
+            legacy_excluded_impact_types=set(allowed_impact_types),
+        )
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).lower():
+            return [], "SKIPPED_IMPACT_TABLE_NOT_FOUND"
+        raise
     finally:
         connection.close()
 
-    allowed = set(allowed_impact_types)
     windows = [
         ExclusionWindow(
             ne_id=event.ne_id,
             t1_utc=event.t1_utc,
             t2_utc=event.t2_utc,
-            reason=event.impact_type,
-            source=f"FR103:{event.impact_id}",
+            reason=f"{event.category}:{event.reason}",
+            source=f"FR202:{event.event_id}",
         )
         for event in events
-        if not allowed or event.impact_type in allowed
     ]
     return windows, f"LOADED_{len(windows)}_WINDOWS"
 

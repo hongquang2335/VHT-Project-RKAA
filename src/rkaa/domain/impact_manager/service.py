@@ -1,4 +1,4 @@
-"""Dịch vụ nghiệp vụ triển khai các thao tác của FR-103."""
+"""Dịch vụ nghiệp vụ triển khai FR-103 và phần quản lý event của FR-202."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from rkaa.domain.impact_manager.models import (
     CreateImpactRequest,
+    EventCategory,
     ImpactEvent,
     ImpactSource,
     ImpactStatus,
@@ -24,8 +25,35 @@ from rkaa.domain.impact_manager.validators import (
 )
 
 
+def _normalize_event_category(value: EventCategory | str) -> EventCategory:
+    if isinstance(value, EventCategory):
+        return value
+    try:
+        return EventCategory(str(value).strip().upper())
+    except ValueError as exc:
+        raise ValueError(f"event_category không hợp lệ: {value!r}") from exc
+
+
+def _default_exclude_policy(
+    category: EventCategory,
+    explicit_value: bool | None,
+) -> bool | None:
+    """Xác định chính sách baseline cho event mới.
+
+    - MAINTENANCE/SPECIAL_EVENT mặc định bị loại khỏi baseline theo FR-202.
+    - IMPACT giữ ``None`` khi người dùng không chỉ định để FR-201 có thể áp
+      legacy ``excluded_impact_types`` và không phá hành vi dữ liệu FR-103 cũ.
+    """
+
+    if explicit_value is not None:
+        return explicit_value
+    if category in {EventCategory.MAINTENANCE, EventCategory.SPECIAL_EVENT}:
+        return True
+    return None
+
+
 class ImpactManagerService:
-    """Điều phối kiểm tra nghiệp vụ và thao tác lưu trữ Impact Event."""
+    """Điều phối kiểm tra nghiệp vụ và thao tác lưu trữ Impact/Event Calendar."""
 
     def __init__(
         self,
@@ -42,7 +70,7 @@ class ImpactManagerService:
         self.input_timezone = input_timezone
 
     def create_impact(self, request: CreateImpactRequest) -> ImpactEvent:
-        """Kiểm tra, chuẩn hóa và lưu Impact Event được nhập thủ công."""
+        """Kiểm tra, chuẩn hóa và lưu Impact Event/Event Calendar entry."""
 
         ne_id = require_non_empty(request.ne_id, "ne_id")
         cell_id = normalize_optional_text(request.cell_id)
@@ -51,6 +79,11 @@ class ImpactManagerService:
         impact_type = validate_impact_type(
             request.impact_type,
             self.allowed_impact_types,
+        )
+        event_category = _normalize_event_category(request.event_category)
+        exclude_from_baseline = _default_exclude_policy(
+            event_category,
+            request.exclude_from_baseline,
         )
 
         t1_utc = parse_input_datetime(
@@ -74,14 +107,12 @@ class ImpactManagerService:
             description=description,
             operator=operator,
             source=ImpactSource.MANUAL,
-            status=(
-                ImpactStatus.ONGOING
-                if t2_utc is None
-                else ImpactStatus.CLOSED
-            ),
+            status=(ImpactStatus.ONGOING if t2_utc is None else ImpactStatus.CLOSED),
             created_at_utc=now_utc,
             updated_at_utc=now_utc,
             deleted_at_utc=None,
+            event_category=event_category,
+            exclude_from_baseline=exclude_from_baseline,
         )
         return self.repository.create(event)
 
@@ -91,8 +122,6 @@ class ImpactManagerService:
         *,
         include_deleted: bool = False,
     ) -> ImpactEvent:
-        """Trả về Impact Event hoặc phát sinh ``LookupError`` nếu không có."""
-
         normalized_id = require_non_empty(impact_id, "impact_id")
         event = self.repository.get_by_id(
             normalized_id,
@@ -108,9 +137,11 @@ class ImpactManagerService:
         ne_id: str | None = None,
         cell_id: str | None = None,
         status: ImpactStatus | str | None = None,
+        event_category: EventCategory | str | None = None,
+        exclude_from_baseline: bool | None = None,
         include_deleted: bool = False,
     ) -> list[ImpactEvent]:
-        """Liệt kê Impact Event với các bộ lọc tùy chọn."""
+        """Liệt kê Impact/Event Calendar với các bộ lọc tùy chọn."""
 
         normalized_status: ImpactStatus | None
         if status is None:
@@ -123,10 +154,16 @@ class ImpactManagerService:
             except ValueError as exc:
                 raise ValueError(f"Trạng thái không hợp lệ: {status!r}") from exc
 
+        normalized_category = (
+            None if event_category is None else _normalize_event_category(event_category)
+        )
+
         return self.repository.list_events(
             ne_id=normalize_optional_text(ne_id),
             cell_id=normalize_optional_text(cell_id),
             status=normalized_status,
+            event_category=normalized_category,
+            exclude_from_baseline=exclude_from_baseline,
             include_deleted=include_deleted,
         )
 
@@ -141,6 +178,10 @@ class ImpactManagerService:
             raise ValueError("Cần cung cấp ít nhất một trường để cập nhật")
         if request.clear_cell and request.cell_id is not None:
             raise ValueError("Không dùng đồng thời cell_id và clear_cell")
+        if request.clear_exclude_from_baseline and request.exclude_from_baseline is not None:
+            raise ValueError(
+                "Không dùng đồng thời exclude_from_baseline và clear_exclude_from_baseline"
+            )
 
         current = self.get_impact(impact_id)
         self._ensure_not_deleted(current)
@@ -173,6 +214,24 @@ class ImpactManagerService:
             if request.impact_type is not None
             else current.impact_type
         )
+        event_category = (
+            _normalize_event_category(request.event_category)
+            if request.event_category is not None
+            else current.event_category
+        )
+        if request.clear_exclude_from_baseline:
+            exclude_from_baseline = None
+        elif request.exclude_from_baseline is not None:
+            exclude_from_baseline = request.exclude_from_baseline
+        elif request.event_category is not None and event_category in {
+            EventCategory.MAINTENANCE,
+            EventCategory.SPECIAL_EVENT,
+        } and current.exclude_from_baseline is None:
+            # Khi đổi một legacy IMPACT sang FR-202 category, mặc định exclude.
+            exclude_from_baseline = True
+        else:
+            exclude_from_baseline = current.exclude_from_baseline
+
         t1_utc = (
             parse_input_datetime(request.t1, input_timezone=self.input_timezone)
             if request.t1 is not None
@@ -194,18 +253,14 @@ class ImpactManagerService:
             impact_type=impact_type,
             description=description,
             operator=operator,
-            status=(
-                ImpactStatus.ONGOING
-                if t2_utc is None
-                else ImpactStatus.CLOSED
-            ),
+            event_category=event_category,
+            exclude_from_baseline=exclude_from_baseline,
+            status=(ImpactStatus.ONGOING if t2_utc is None else ImpactStatus.CLOSED),
             updated_at_utc=datetime.now(timezone.utc),
         )
         return self.repository.update(updated)
 
     def close_impact(self, impact_id: str, t2: str) -> ImpactEvent:
-        """Đóng event ``ONGOING`` bằng một thời điểm kết thúc hợp lệ."""
-
         current = self.get_impact(impact_id)
         self._ensure_not_deleted(current)
         if current.status is not ImpactStatus.ONGOING:
@@ -222,8 +277,6 @@ class ImpactManagerService:
         return self.repository.update(updated)
 
     def delete_impact(self, impact_id: str) -> None:
-        """Xóa mềm event nhưng vẫn giữ bản ghi để truy vết."""
-
         current = self.get_impact(impact_id, include_deleted=True)
         if current.status is ImpactStatus.DELETED:
             raise ValueError("Impact Event đã bị xóa")

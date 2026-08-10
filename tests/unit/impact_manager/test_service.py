@@ -7,6 +7,7 @@ import pytest
 
 from rkaa.domain.impact_manager.models import (
     CreateImpactRequest,
+    EventCategory,
     ImpactEvent,
     ImpactStatus,
     UpdateImpactRequest,
@@ -43,6 +44,8 @@ class FakeImpactRepository:
         ne_id: str | None = None,
         cell_id: str | None = None,
         status: ImpactStatus | None = None,
+        event_category: EventCategory | None = None,
+        exclude_from_baseline: bool | None = None,
         include_deleted: bool = False,
     ) -> list[ImpactEvent]:
         events = list(self.events.values())
@@ -54,6 +57,13 @@ class FakeImpactRepository:
             events = [item for item in events if item.cell_id == cell_id]
         if status is not None:
             events = [item for item in events if item.status is status]
+        if event_category is not None:
+            events = [item for item in events if item.event_category is event_category]
+        if exclude_from_baseline is not None:
+            events = [
+                item for item in events
+                if item.exclude_from_baseline is exclude_from_baseline
+            ]
         return sorted(events, key=lambda item: item.t1_utc, reverse=True)
 
     def update(self, event: ImpactEvent) -> ImpactEvent:
@@ -188,3 +198,23 @@ def test_created_timestamps_are_utc(service: ImpactManagerService) -> None:
     event = service.create_impact(create_request())
     assert event.created_at_utc.tzinfo is timezone.utc
     assert event.updated_at_utc.tzinfo is timezone.utc
+
+
+def test_maintenance_defaults_to_baseline_exclusion(service: ImpactManagerService) -> None:
+    request = replace(
+        create_request(),
+        event_category=EventCategory.MAINTENANCE,
+    )
+    event = service.create_impact(request)
+    assert event.event_category is EventCategory.MAINTENANCE
+    assert event.exclude_from_baseline is True
+
+
+def test_special_event_can_be_explicitly_included(service: ImpactManagerService) -> None:
+    request = replace(
+        create_request(),
+        event_category=EventCategory.SPECIAL_EVENT,
+        exclude_from_baseline=False,
+    )
+    event = service.create_impact(request)
+    assert event.exclude_from_baseline is False

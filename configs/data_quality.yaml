@@ -1,0 +1,28 @@
+normalization:
+  enabled: true
+  # Timestamp collection hiện tại không mang offset nhưng pipeline FR-201 đang
+  # quy ước nó là UTC. FR-203 sẽ chuẩn hóa biểu diễn thành UTC có offset.
+  assume_naive_timezone: UTC
+
+duplicate_detection:
+  enabled: true
+
+gap_detection:
+  enabled: true
+  expected_interval_minutes: 15
+  # Theo FR-203: chỉ cảnh báo khi gap > 2 giờ. Gap nhỏ hơn vẫn được report INFO.
+  warning_threshold_minutes: 120
+
+range_validation:
+  enabled: true
+  # Dùng lại một nguồn rule hiện có để tránh định nghĩa miền KPI ở hai nơi.
+  rules_file: configs/data_cleaning.yaml
+  rules_path: filters.custom_rule.rules
+
+local_spike:
+  enabled: true
+  # 96 mẫu = 24 giờ nếu dữ liệu có granularity 15 phút.
+  window_samples: 96
+  min_samples: 24
+  # Robust z-score từ rolling median + MAD; chỉ gắn cờ, không tự xóa record.
+  robust_z_threshold: 6.0
