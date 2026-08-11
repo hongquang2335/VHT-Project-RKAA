@@ -22,6 +22,7 @@ def test_fr203_pipeline_generates_quality_issues_and_summary() -> None:
                 "2026-08-10 03:15:00",
             ],
             "ne_id": ["gHM00001"] * 3,
+            "cell_id": ["CELL_A"] * 3,
             "kpi_name": ["ENDC_SSR"] * 3,
             "value": [99.0, 99.0, 120.0],
             "unit": ["%"] * 3,
@@ -34,4 +35,6 @@ def test_fr203_pipeline_generates_quality_issues_and_summary() -> None:
         set(result.issues_df["issue_type"])
     )
     assert result.summary["gaps_over_2h"] == 1
+    assert "cell_id" in result.issues_df.columns
+    assert "period_end" in result.issues_df.columns
     assert not result.summary_df.empty

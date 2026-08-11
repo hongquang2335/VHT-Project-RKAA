@@ -64,6 +64,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--output", default="tmp/minio_kpi_long.csv")
     parser.add_argument("--datetime-col", default=None)
+    parser.add_argument("--ne-col", default=None)
     parser.add_argument("--cellname-col", default=None)
     parser.add_argument("--parquet-prefix", default="v3/*.parquet")
     args = parser.parse_args()
@@ -86,12 +87,17 @@ def main() -> None:
         args.datetime_col or os.getenv("DATETIME_COL") or "datetime"
     ).strip().strip('"').strip("'")
 
+    ne_col = (
+        args.ne_col or os.getenv("NE_COL") or "ne"
+    ).strip().strip('"').strip("'")
+
     cellname_col = (
         args.cellname_col or os.getenv("CELLNAME_COL") or "cellname"
     ).strip().strip('"').strip("'")
 
     normalizer = MinioKPINormalizer(
         datetime_col=datetime_col,
+        ne_col=ne_col,
         cellname_col=cellname_col,
         granularity_minutes=15,
     )

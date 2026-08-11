@@ -61,8 +61,10 @@ class DataQualityIssue:
     severity: str
     row_index: int | None
     ne_id: str | None
+    cell_id: str | None
     kpi_name: str | None
     timestamp: object
+    period_end: object
     value: object
     detail: str
 

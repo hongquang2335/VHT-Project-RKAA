@@ -8,7 +8,7 @@ filters:
   # Bước 2: loại dữ liệu theo Event Calendar FR-202.
   impact_window:
     enabled: true
-    match_mode: exact_or_prefix
+    match_mode: exact
     # Fallback cho record FR-103 legacy chưa có exclude_from_baseline rõ ràng.
     excluded_impact_types:
       - CONFIGURATION_CHANGE
@@ -34,7 +34,7 @@ filters:
     post_restart_grace_minutes: 15
 
   # Bước 4: IQR bật mặc định. Z-score được cài sẵn nhưng để OFF cho tới khi
-  # có đủ dữ liệu và muốn dùng chuẩn hóa thống kê theo từng NE + KPI.
+  # có đủ dữ liệu và muốn dùng chuẩn hóa thống kê theo từng NE + Cell + KPI.
   statistical_outlier:
     enabled: true
     combination: any

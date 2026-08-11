@@ -7,7 +7,15 @@ import pandas as pd
 from rkaa.domain.data_quality.models import DataQualityIssue, NormalizationConfig
 
 
-_REQUIRED_COLUMNS = ("timestamp", "ne_id", "kpi_name", "value")
+# Một record KPI long-format được định danh theo thời gian + NE + Cell + KPI.
+_REQUIRED_COLUMNS = (
+    "timestamp",
+    "period_end",
+    "ne_id",
+    "cell_id",
+    "kpi_name",
+    "value",
+)
 
 
 class DataQualityNormalizer:
@@ -23,7 +31,7 @@ class DataQualityNormalizer:
         working["_dq_row_id"] = range(len(working))
         issues: list[DataQualityIssue] = []
 
-        for column in ("ne_id", "kpi_name", "unit", "quality_flag"):
+        for column in ("ne_id", "cell_id", "kpi_name", "unit", "quality_flag"):
             if column in working.columns:
                 working[column] = working[column].astype("string").str.strip()
 
@@ -41,20 +49,39 @@ class DataQualityNormalizer:
                     severity="ERROR",
                     row_index=int(working.at[idx, "_dq_row_id"]),
                     ne_id=str(working.at[idx, "ne_id"]),
+                    cell_id=str(working.at[idx, "cell_id"]),
                     kpi_name=str(working.at[idx, "kpi_name"]),
                     timestamp=original_timestamp.at[idx],
+                    period_end=working.at[idx, "period_end"],
                     value=working.at[idx, "value"],
                     detail="timestamp không parse được",
                 )
             )
         working["timestamp"] = parsed_timestamp
 
-        if "period_end" in working.columns:
-            working["period_end"] = pd.to_datetime(
-                working["period_end"],
-                errors="coerce",
-                utc=True,
+        original_period_end = working["period_end"].copy()
+        parsed_period_end = pd.to_datetime(
+            original_period_end,
+            errors="coerce",
+            utc=True,
+        )
+        invalid_period_end = parsed_period_end.isna() & original_period_end.notna()
+        for idx in working.index[invalid_period_end]:
+            issues.append(
+                DataQualityIssue(
+                    issue_type="INVALID_PERIOD_END",
+                    severity="ERROR",
+                    row_index=int(working.at[idx, "_dq_row_id"]),
+                    ne_id=str(working.at[idx, "ne_id"]),
+                    cell_id=str(working.at[idx, "cell_id"]),
+                    kpi_name=str(working.at[idx, "kpi_name"]),
+                    timestamp=working.at[idx, "timestamp"],
+                    period_end=original_period_end.at[idx],
+                    value=working.at[idx, "value"],
+                    detail="period_end không parse được",
+                )
             )
+        working["period_end"] = parsed_period_end
 
         original_value = working["value"].copy()
         numeric_value = pd.to_numeric(original_value, errors="coerce")
@@ -66,8 +93,10 @@ class DataQualityNormalizer:
                     severity="ERROR",
                     row_index=int(working.at[idx, "_dq_row_id"]),
                     ne_id=str(working.at[idx, "ne_id"]),
+                    cell_id=str(working.at[idx, "cell_id"]),
                     kpi_name=str(working.at[idx, "kpi_name"]),
                     timestamp=working.at[idx, "timestamp"],
+                    period_end=working.at[idx, "period_end"],
                     value=original_value.at[idx],
                     detail="value không chuyển được sang số",
                 )
@@ -75,7 +104,7 @@ class DataQualityNormalizer:
         working["value"] = numeric_value
 
         working = working.sort_values(
-            ["ne_id", "kpi_name", "timestamp", "_dq_row_id"],
+            ["ne_id", "cell_id", "kpi_name", "timestamp", "period_end", "_dq_row_id"],
             na_position="last",
             kind="stable",
         ).reset_index(drop=True)

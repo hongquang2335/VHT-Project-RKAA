@@ -8,11 +8,7 @@ from rkaa.domain.data_quality.models import DataQualityIssue, LocalSpikeConfig
 
 
 class LocalSpikeDetector:
-    """Phát hiện điểm lệch mạnh so với lịch sử gần của cùng NE + KPI.
-
-    Dùng các mẫu *trước* điểm hiện tại để tránh điểm đang xét tự làm thay đổi
-    baseline của chính nó. MAD=0 hoặc thiếu mẫu thì group tự skip.
-    """
+    """Phát hiện điểm lệch mạnh theo lịch sử của đúng NE + Cell + KPI."""
 
     def __init__(self, config: LocalSpikeConfig) -> None:
         self.config = config
@@ -22,7 +18,10 @@ class LocalSpikeDetector:
             return []
 
         issues: list[DataQualityIssue] = []
-        for (_, _), group in df.groupby(["ne_id", "kpi_name"], sort=False):
+        for (_, _, _), group in df.groupby(
+            ["ne_id", "cell_id", "kpi_name"],
+            sort=False,
+        ):
             group = group[group["timestamp"].notna() & group["value"].notna()].sort_values(
                 "timestamp"
             )
@@ -51,8 +50,10 @@ class LocalSpikeDetector:
                         severity="WARNING",
                         row_index=int(row["_dq_row_id"]),
                         ne_id=str(row["ne_id"]),
+                        cell_id=str(row["cell_id"]),
                         kpi_name=str(row["kpi_name"]),
                         timestamp=row["timestamp"],
+                        period_end=row["period_end"],
                         value=row["value"],
                         detail=(
                             f"robust_z={robust_z.loc[idx]:.4f}; "

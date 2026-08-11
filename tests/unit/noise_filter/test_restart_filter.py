@@ -4,7 +4,7 @@ from rkaa.domain.noise_filter.models import RestartConfig
 from rkaa.domain.noise_filter.restart_filter import RestartFilter
 
 
-def _counter_rows(metric_name: str) -> list[dict[str, object]]:
+def _counter_rows(metric_name: str, *, cell_id: str = "CELL_A") -> list[dict[str, object]]:
     times = [
         "2026-07-01 00:00:00",
         "2026-07-01 00:15:00",
@@ -17,6 +17,7 @@ def _counter_rows(metric_name: str) -> list[dict[str, object]]:
         {
             "timestamp": timestamp,
             "ne_id": "NE_A",
+            "cell_id": cell_id,
             "kpi_name": metric_name,
             "value": value,
         }

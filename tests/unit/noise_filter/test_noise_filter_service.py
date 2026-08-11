@@ -18,6 +18,7 @@ def test_service_returns_cleaned_and_excluded_dataframes() -> None:
             "timestamp": ["2026-07-01 00:00:00"] * 3,
             "period_end": ["2026-07-01 00:15:00"] * 3,
             "ne_id": ["NE_A"] * 3,
+            "cell_id": ["CELL_A"] * 3,
             "kpi_name": ["ENDC_SSR"] * 3,
             "value": [99.0, None, 120.0],
             "unit": ["%"] * 3,

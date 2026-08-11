@@ -63,6 +63,7 @@ def _load_exclusion_windows(
     windows = [
         ExclusionWindow(
             ne_id=event.ne_id,
+            cell_id=event.cell_id,
             t1_utc=event.t1_utc,
             t2_utc=event.t2_utc,
             reason=f"{event.category}:{event.reason}",

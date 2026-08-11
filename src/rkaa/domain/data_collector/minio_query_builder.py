@@ -22,24 +22,19 @@ def quote_identifier(name: str) -> str:
 
 def _build_station_filter(
     *,
-    cellname_col: str,
+    ne_col: str,
     station_ids: list[str],
     params: list[object],
 ) -> str:
-    """Tạo điều kiện chỉ đọc cell thuộc các trạm được chọn.
+    """Tạo điều kiện READ-ONLY chỉ lấy đúng các NE/trạm được chọn.
 
-    Quy ước hiện tại: cellname có dạng <station_id> hoặc <station_id>_...
-    Ví dụ gHM00001 sẽ khớp gHM00001 và gHM00001_30n411.
+    Sau khi schema được tách rõ, ``ne`` là mã trạm/NE còn ``cellname`` là cell_id,
+    vì vậy không còn suy station từ prefix của cellname.
     """
-    clauses: list[str] = []
-    quoted_cellname = quote_identifier(cellname_col)
 
-    for station_id in station_ids:
-        clauses.append(
-            f"({quoted_cellname} = ? OR starts_with({quoted_cellname}, ?))"
-        )
-        params.extend([station_id, f"{station_id}_"])
-
+    quoted_ne = quote_identifier(ne_col)
+    clauses = [f"{quoted_ne} = ?" for _ in station_ids]
+    params.extend(station_ids)
     return f"({' OR '.join(clauses)})"
 
 
@@ -48,6 +43,7 @@ def build_minio_kpi_query(
     bucket: str,
     selected_columns: list[str],
     datetime_col: str,
+    ne_col: str,
     cellname_col: str,
     start_time: str,
     end_time: str,
@@ -79,7 +75,7 @@ def build_minio_kpi_query(
     if normalized_station_ids:
         where_clauses.append(
             _build_station_filter(
-                cellname_col=cellname_col,
+                ne_col=ne_col,
                 station_ids=normalized_station_ids,
                 params=params,
             )
