@@ -23,6 +23,7 @@ class MinioCollectionService:
                 "timestamp",
                 "period_end",
                 "ne_id",
+                "cell_id",
                 "kpi_name",
                 "value",
                 "unit",
@@ -38,12 +39,12 @@ class MinioCollectionService:
         cellname: str | None = None,
         limit: int | None = None,
     ) -> pd.DataFrame:
-        """Luồng FR-101 cũ: không đổi hành vi."""
         selected_columns = self.normalizer.required_columns()
 
         wide_df = self.adapter.fetch_kpi_wide_dataframe(
             selected_columns=selected_columns,
             datetime_col=self.normalizer.datetime_col,
+            ne_col=self.normalizer.ne_col,
             cellname_col=self.normalizer.cellname_col,
             start_time=start_time,
             end_time=end_time,
@@ -64,7 +65,7 @@ class MinioCollectionService:
         station_ids: list[str],
         limit: int | None = None,
     ) -> pd.DataFrame:
-        """Thu thập chỉ dữ liệu thuộc danh sách trạm mong muốn."""
+        """Thu thập chỉ dữ liệu thuộc danh sách NE/trạm mong muốn."""
         normalized_station_ids = normalize_station_ids(station_ids)
         if not normalized_station_ids:
             return self._empty_long_dataframe()
@@ -74,6 +75,7 @@ class MinioCollectionService:
             station_ids=normalized_station_ids,
             selected_columns=selected_columns,
             datetime_col=self.normalizer.datetime_col,
+            ne_col=self.normalizer.ne_col,
             cellname_col=self.normalizer.cellname_col,
             start_time=start_time,
             end_time=end_time,

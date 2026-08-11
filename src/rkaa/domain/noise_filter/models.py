@@ -87,12 +87,14 @@ class NoiseFilterConfig:
 
 @dataclass(frozen=True, slots=True)
 class ExclusionWindow:
-    """Khoảng thời gian không dùng cho baseline của một NE.
+    """Khoảng thời gian không dùng cho baseline của NE hoặc một cell cụ thể.
 
-    ``t2_utc=None`` biểu diễn sự kiện vẫn đang diễn ra.
+    ``cell_id=None`` nghĩa là áp dụng cho toàn NE. ``t2_utc=None`` biểu diễn
+    sự kiện vẫn đang diễn ra.
     """
 
     ne_id: str
+    cell_id: str | None
     t1_utc: datetime
     t2_utc: datetime | None
     reason: str

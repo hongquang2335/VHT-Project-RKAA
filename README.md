@@ -63,7 +63,7 @@ python scripts/run_collection_once.py \
   --stations-file configs/stations.yaml
 ```
 
-Quy ước hiện tại: station `gHM00001` khớp cellname `gHM00001` hoặc các cell bắt đầu bằng `gHM00001_`. Luồng cũ `--cellname` vẫn giữ nguyên.
+Danh sách station được lọc trực tiếp theo cột `ne` của Parquet. Cột `cellname` được giữ riêng thành `cell_id`; luồng `--cellname` vẫn lọc chính xác một cell.
 
 ## Chạy FR-103
 
@@ -103,6 +103,15 @@ python -m ruff check src scripts tests
 ```
 
 Dữ liệu tạm mặc định được ghi trong thư mục `tmp/`.
+
+Schema long-format sau FR-101 giữ riêng định danh NE và cell:
+
+```text
+timestamp, period_end, ne_id, cell_id, kpi_name, value, unit, quality_flag
+```
+
+Với dữ liệu long-format, một giá trị KPI được định danh bởi
+`timestamp + period_end + ne_id + cell_id + kpi_name`.
 
 ## Chạy FR-201 — Lọc nhiễu dữ liệu
 
@@ -144,7 +153,7 @@ python scripts/run_cleaning_once.py \
 ```
 
 Bật/tắt từng bước lọc bằng `enabled: true/false` trong YAML. Nếu một nhóm
-`ne_id + kpi_name` không đủ `min_samples`, IQR/Z-score tự bỏ qua nhóm đó và
+`ne_id + cell_id + kpi_name` không đủ `min_samples`, IQR/Z-score tự bỏ qua nhóm đó và
 không chuyển dữ liệu sang `excluded_kpi.csv`.
 
 ## FR-202 — Maintenance Window / Special Event
@@ -191,7 +200,7 @@ tmp/fr203/data_quality_summary.csv
 ```
 
 FR-203 thực hiện: chuẩn hóa timestamp/value/schema, exact/conflicting duplicate,
-gap theo `ne_id + kpi_name`, range validation, và local spike bằng rolling median
+gap theo `ne_id + cell_id + kpi_name`, range validation, và local spike bằng rolling median
 + MAD. Exact duplicate giữ một bản; conflicting duplicate và local spike chỉ được
 gắn cờ, không tự xóa. Gap > 2 giờ được in cảnh báo trên terminal.
 

@@ -10,7 +10,8 @@ from rkaa.domain.data_quality.models import DataQualityIssue, DuplicateConfig
 
 
 class DuplicateDetector:
-    KEY_COLUMNS = ["timestamp", "ne_id", "kpi_name"]
+    # KPI long-format cần cả cell_id và period_end để không nhầm hai cell/timeslot.
+    KEY_COLUMNS = ["timestamp", "period_end", "ne_id", "cell_id", "kpi_name"]
 
     def __init__(self, config: DuplicateConfig) -> None:
         self.config = config
@@ -49,7 +50,6 @@ class DuplicateDetector:
             )
 
             if exact:
-                # Giữ record đầu tiên; các bản sao hoàn toàn dư thừa được bỏ.
                 for idx in group.index[1:]:
                     row = working.loc[idx]
                     drop_indexes.append(int(idx))
@@ -59,8 +59,10 @@ class DuplicateDetector:
                             severity="INFO",
                             row_index=int(row["_dq_row_id"]),
                             ne_id=str(row["ne_id"]),
+                            cell_id=str(row["cell_id"]),
                             kpi_name=str(row["kpi_name"]),
                             timestamp=row["timestamp"],
+                            period_end=row["period_end"],
                             value=row["value"],
                             detail="bản ghi duplicate exact; giữ record xuất hiện đầu tiên",
                         )
@@ -74,8 +76,10 @@ class DuplicateDetector:
                             severity="ERROR",
                             row_index=int(row["_dq_row_id"]),
                             ne_id=str(row["ne_id"]),
+                            cell_id=str(row["cell_id"]),
                             kpi_name=str(row["kpi_name"]),
                             timestamp=row["timestamp"],
+                            period_end=row["period_end"],
                             value=row["value"],
                             detail=f"cùng key nhưng value khác nhau: {values}",
                         )

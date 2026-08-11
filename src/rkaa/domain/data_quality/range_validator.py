@@ -35,8 +35,10 @@ class RangeValidator:
                         severity="ERROR",
                         row_index=int(row["_dq_row_id"]),
                         ne_id=str(row["ne_id"]),
+                        cell_id=str(row["cell_id"]),
                         kpi_name=str(row["kpi_name"]),
                         timestamp=row["timestamp"],
+                        period_end=row["period_end"],
                         value=value,
                         detail=reason,
                     )

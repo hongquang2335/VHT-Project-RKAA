@@ -46,6 +46,7 @@ filters:
                 "2026-07-01 01:00:00",
             ],
             "ne_id": ["NE_A"] * 4,
+            "cell_id": ["CELL_A"] * 4,
             "kpi_name": ["ENDC_SSR"] * 4,
             "value": [99.0, -999.0, 50.0, 120.0],
             "unit": ["%"] * 4,
@@ -55,6 +56,7 @@ filters:
     windows = [
         ExclusionWindow(
             ne_id="NE_A",
+            cell_id="CELL_A",
             t1_utc=datetime(2026, 7, 1, 0, 30, tzinfo=timezone.utc),
             t2_utc=datetime(2026, 7, 1, 0, 45, tzinfo=timezone.utc),
             reason="SOFTWARE_UPGRADE",

@@ -22,15 +22,23 @@ class ImpactWindowFilter:
         self.windows = list(windows or [])
 
     def _match_ne(self, series: pd.Series, ne_id: str) -> pd.Series:
+        """Khớp NE theo mã NE thực tế; không suy NE từ prefix cell_id."""
         values = series.astype(str)
-        if self.config.match_mode == "exact":
+        if self.config.match_mode in {"exact", "exact_or_prefix"}:
+            # exact_or_prefix được giữ để tương thích config cũ, nhưng schema mới
+            # đã có ne_id riêng nên phép khớp đúng là exact.
             return values == ne_id
-        if self.config.match_mode == "exact_or_prefix":
-            return (values == ne_id) | values.str.startswith(f"{ne_id}_")
         raise ValueError(f"match_mode không hỗ trợ: {self.config.match_mode}")
 
+    @staticmethod
+    def _match_cell(series: pd.Series, cell_id: str | None) -> pd.Series:
+        """cell_id=None áp dụng window cho toàn NE; có cell_id thì khớp chính xác."""
+        if cell_id is None:
+            return pd.Series(True, index=series.index)
+        return series.astype(str) == cell_id
+
     def apply(self, df: pd.DataFrame) -> FilterOutcome:
-        require_columns(df, ("timestamp", "ne_id"))
+        require_columns(df, ("timestamp", "ne_id", "cell_id"))
         if not self.windows:
             return FilterOutcome(
                 cleaned_df=df.copy(),
@@ -59,6 +67,7 @@ class ImpactWindowFilter:
                 t1 = t1.tz_convert("UTC")
 
             ne_mask = self._match_ne(df["ne_id"], window.ne_id)
+            cell_mask = self._match_cell(df["cell_id"], window.cell_id)
             time_mask = timestamps >= t1
 
             if window.t2_utc is not None:
@@ -69,11 +78,12 @@ class ImpactWindowFilter:
                     t2 = t2.tz_convert("UTC")
                 time_mask &= timestamps < t2
 
-            current = ne_mask & time_mask
+            current = ne_mask & cell_mask & time_mask
             new_rows = current & ~mask
             reasons.loc[new_rows] = window.reason
             details.loc[new_rows] = (
                 f"source={window.source}; ne_id={window.ne_id}; "
+                f"cell_id={window.cell_id or 'ALL'}; "
                 f"t1={window.t1_utc.isoformat()}; "
                 f"t2={window.t2_utc.isoformat() if window.t2_utc else 'ONGOING'}"
             )

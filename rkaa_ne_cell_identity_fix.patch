@@ -1,0 +1,1437 @@
+diff --git a/.env.example b/.env.example
+index 32b740e..9f3d129 100644
+--- a/.env.example
++++ b/.env.example
+@@ -4,4 +4,5 @@ MINIO_SECRET=replace-me
+ MINIO_BUCKET=replace-me
+ MINIO_EXT_DIR=.
+ DATETIME_COL=datetime
++NE_COL=ne
+ CELLNAME_COL=cellname
+diff --git a/README.md b/README.md
+index 07c6bcf..789f0b5 100644
+--- a/README.md
++++ b/README.md
+@@ -63,7 +63,7 @@ python scripts/run_collection_once.py \
+   --stations-file configs/stations.yaml
+ ```
+ 
+-Quy ước hiện tại: station `gHM00001` khớp cellname `gHM00001` hoặc các cell bắt đầu bằng `gHM00001_`. Luồng cũ `--cellname` vẫn giữ nguyên.
++Danh sách station được lọc trực tiếp theo cột `ne` của Parquet. Cột `cellname` được giữ riêng thành `cell_id`; luồng `--cellname` vẫn lọc chính xác một cell.
+ 
+ ## Chạy FR-103
+ 
+@@ -104,6 +104,15 @@ python -m ruff check src scripts tests
+ 
+ Dữ liệu tạm mặc định được ghi trong thư mục `tmp/`.
+ 
++Schema long-format sau FR-101 giữ riêng định danh NE và cell:
++
++```text
++timestamp, period_end, ne_id, cell_id, kpi_name, value, unit, quality_flag
++```
++
++Với dữ liệu long-format, một giá trị KPI được định danh bởi
++`timestamp + period_end + ne_id + cell_id + kpi_name`.
++
+ ## Chạy FR-201 — Lọc nhiễu dữ liệu
+ 
+ FR-201 chạy sau FR-101 trên file long-format, không ghi hoặc sửa dữ liệu trên MinIO.
+@@ -144,7 +153,7 @@ python scripts/run_cleaning_once.py \
+ ```
+ 
+ Bật/tắt từng bước lọc bằng `enabled: true/false` trong YAML. Nếu một nhóm
+-`ne_id + kpi_name` không đủ `min_samples`, IQR/Z-score tự bỏ qua nhóm đó và
++`ne_id + cell_id + kpi_name` không đủ `min_samples`, IQR/Z-score tự bỏ qua nhóm đó và
+ không chuyển dữ liệu sang `excluded_kpi.csv`.
+ 
+ ## FR-202 — Maintenance Window / Special Event
+@@ -191,7 +200,7 @@ tmp/fr203/data_quality_summary.csv
+ ```
+ 
+ FR-203 thực hiện: chuẩn hóa timestamp/value/schema, exact/conflicting duplicate,
+-gap theo `ne_id + kpi_name`, range validation, và local spike bằng rolling median
++gap theo `ne_id + cell_id + kpi_name`, range validation, và local spike bằng rolling median
+ + MAD. Exact duplicate giữ một bản; conflicting duplicate và local spike chỉ được
+ gắn cờ, không tự xóa. Gap > 2 giờ được in cảnh báo trên terminal.
+ 
+diff --git a/configs/data_cleaning.yaml b/configs/data_cleaning.yaml
+index f00c4cb..11a460e 100644
+--- a/configs/data_cleaning.yaml
++++ b/configs/data_cleaning.yaml
+@@ -8,7 +8,7 @@ filters:
+   # Bước 2: loại dữ liệu theo Event Calendar FR-202.
+   impact_window:
+     enabled: true
+-    match_mode: exact_or_prefix
++    match_mode: exact
+     # Fallback cho record FR-103 legacy chưa có exclude_from_baseline rõ ràng.
+     excluded_impact_types:
+       - CONFIGURATION_CHANGE
+@@ -34,7 +34,7 @@ filters:
+     post_restart_grace_minutes: 15
+ 
+   # Bước 4: IQR bật mặc định. Z-score được cài sẵn nhưng để OFF cho tới khi
+-  # có đủ dữ liệu và muốn dùng chuẩn hóa thống kê theo từng NE + KPI.
++  # có đủ dữ liệu và muốn dùng chuẩn hóa thống kê theo từng NE + Cell + KPI.
+   statistical_outlier:
+     enabled: true
+     combination: any
+diff --git a/scripts/run_cleaning_once.py b/scripts/run_cleaning_once.py
+index 5fdc699..d49386c 100644
+--- a/scripts/run_cleaning_once.py
++++ b/scripts/run_cleaning_once.py
+@@ -63,6 +63,7 @@ def _load_exclusion_windows(
+     windows = [
+         ExclusionWindow(
+             ne_id=event.ne_id,
++            cell_id=event.cell_id,
+             t1_utc=event.t1_utc,
+             t2_utc=event.t2_utc,
+             reason=f"{event.category}:{event.reason}",
+diff --git a/scripts/run_collection_once.py b/scripts/run_collection_once.py
+index f123d57..81c8c52 100644
+--- a/scripts/run_collection_once.py
++++ b/scripts/run_collection_once.py
+@@ -64,6 +64,7 @@ def main() -> None:
+     parser.add_argument("--limit", type=int, default=1000)
+     parser.add_argument("--output", default="tmp/minio_kpi_long.csv")
+     parser.add_argument("--datetime-col", default=None)
++    parser.add_argument("--ne-col", default=None)
+     parser.add_argument("--cellname-col", default=None)
+     parser.add_argument("--parquet-prefix", default="v3/*.parquet")
+     args = parser.parse_args()
+@@ -86,12 +87,17 @@ def main() -> None:
+         args.datetime_col or os.getenv("DATETIME_COL") or "datetime"
+     ).strip().strip('"').strip("'")
+ 
++    ne_col = (
++        args.ne_col or os.getenv("NE_COL") or "ne"
++    ).strip().strip('"').strip("'")
++
+     cellname_col = (
+         args.cellname_col or os.getenv("CELLNAME_COL") or "cellname"
+     ).strip().strip('"').strip("'")
+ 
+     normalizer = MinioKPINormalizer(
+         datetime_col=datetime_col,
++        ne_col=ne_col,
+         cellname_col=cellname_col,
+         granularity_minutes=15,
+     )
+diff --git a/src/rkaa/domain/data_collector/minio_collection_service.py b/src/rkaa/domain/data_collector/minio_collection_service.py
+index d7349aa..5fe3d83 100644
+--- a/src/rkaa/domain/data_collector/minio_collection_service.py
++++ b/src/rkaa/domain/data_collector/minio_collection_service.py
+@@ -23,6 +23,7 @@ class MinioCollectionService:
+                 "timestamp",
+                 "period_end",
+                 "ne_id",
++                "cell_id",
+                 "kpi_name",
+                 "value",
+                 "unit",
+@@ -38,12 +39,12 @@ class MinioCollectionService:
+         cellname: str | None = None,
+         limit: int | None = None,
+     ) -> pd.DataFrame:
+-        """Luồng FR-101 cũ: không đổi hành vi."""
+         selected_columns = self.normalizer.required_columns()
+ 
+         wide_df = self.adapter.fetch_kpi_wide_dataframe(
+             selected_columns=selected_columns,
+             datetime_col=self.normalizer.datetime_col,
++            ne_col=self.normalizer.ne_col,
+             cellname_col=self.normalizer.cellname_col,
+             start_time=start_time,
+             end_time=end_time,
+@@ -64,7 +65,7 @@ class MinioCollectionService:
+         station_ids: list[str],
+         limit: int | None = None,
+     ) -> pd.DataFrame:
+-        """Thu thập chỉ dữ liệu thuộc danh sách trạm mong muốn."""
++        """Thu thập chỉ dữ liệu thuộc danh sách NE/trạm mong muốn."""
+         normalized_station_ids = normalize_station_ids(station_ids)
+         if not normalized_station_ids:
+             return self._empty_long_dataframe()
+@@ -74,6 +75,7 @@ class MinioCollectionService:
+             station_ids=normalized_station_ids,
+             selected_columns=selected_columns,
+             datetime_col=self.normalizer.datetime_col,
++            ne_col=self.normalizer.ne_col,
+             cellname_col=self.normalizer.cellname_col,
+             start_time=start_time,
+             end_time=end_time,
+diff --git a/src/rkaa/domain/data_collector/minio_kpi_adapter.py b/src/rkaa/domain/data_collector/minio_kpi_adapter.py
+index 853a8ee..0100af0 100644
+--- a/src/rkaa/domain/data_collector/minio_kpi_adapter.py
++++ b/src/rkaa/domain/data_collector/minio_kpi_adapter.py
+@@ -28,17 +28,19 @@ class MinioKPIAdapter:
+         *,
+         selected_columns: list[str],
+         datetime_col: str,
++        ne_col: str,
+         cellname_col: str,
+         start_time: str,
+         end_time: str,
+         cellname: str | None = None,
+         limit: int | None = None,
+     ) -> pd.DataFrame:
+-        """Luồng cũ: đọc toàn bộ theo thời gian hoặc lọc chính xác một cell."""
++        """Đọc theo thời gian hoặc lọc chính xác một cell; chỉ dùng SELECT."""
+         query = build_minio_kpi_query(
+             bucket=self.bucket,
+             selected_columns=selected_columns,
+             datetime_col=datetime_col,
++            ne_col=ne_col,
+             cellname_col=cellname_col,
+             start_time=start_time,
+             end_time=end_time,
+@@ -54,12 +56,13 @@ class MinioKPIAdapter:
+         station_ids: list[str],
+         selected_columns: list[str],
+         datetime_col: str,
++        ne_col: str,
+         cellname_col: str,
+         start_time: str,
+         end_time: str,
+         limit: int | None = None,
+     ) -> pd.DataFrame:
+-        """Đọc KPI chỉ cho danh sách trạm mong muốn.
++        """Đọc KPI chỉ cho danh sách NE/trạm mong muốn theo cột ``ne``.
+ 
+         Phương thức chỉ sinh SELECT trên Parquet MinIO, không ghi/sửa/xóa dữ liệu nguồn.
+         """
+@@ -71,6 +74,7 @@ class MinioKPIAdapter:
+             bucket=self.bucket,
+             selected_columns=selected_columns,
+             datetime_col=datetime_col,
++            ne_col=ne_col,
+             cellname_col=cellname_col,
+             start_time=start_time,
+             end_time=end_time,
+diff --git a/src/rkaa/domain/data_collector/minio_kpi_normalizer.py b/src/rkaa/domain/data_collector/minio_kpi_normalizer.py
+index f5ff408..d85bb6e 100644
+--- a/src/rkaa/domain/data_collector/minio_kpi_normalizer.py
++++ b/src/rkaa/domain/data_collector/minio_kpi_normalizer.py
+@@ -61,15 +61,19 @@ DEFAULT_KPI_MAPPING: list[KPIMappingItem] = [
+ 
+ 
+ class MinioKPINormalizer:
++    """Chuẩn hóa dữ liệu wide MinIO thành long-format theo NE + Cell + KPI."""
++
+     def __init__(
+         self,
+         *,
+         datetime_col: str = "datetime",
++        ne_col: str = "ne",
+         cellname_col: str = "cellname",
+         granularity_minutes: int = 15,
+         kpi_mapping: list[KPIMappingItem] | None = None,
+     ) -> None:
+         self.datetime_col = datetime_col
++        self.ne_col = ne_col
+         self.cellname_col = cellname_col
+         self.granularity_minutes = granularity_minutes
+         self.kpi_mapping = kpi_mapping or DEFAULT_KPI_MAPPING
+@@ -77,6 +81,7 @@ class MinioKPINormalizer:
+     def required_columns(self) -> list[str]:
+         return [
+             self.datetime_col,
++            self.ne_col,
+             self.cellname_col,
+             *[item.source_column for item in self.kpi_mapping],
+         ]
+@@ -85,17 +90,16 @@ class MinioKPINormalizer:
+         df = df.copy()
+         df.columns = [str(c).strip().strip('"').strip("'") for c in df.columns]
+ 
+-        if self.datetime_col not in df.columns:
+-            raise KeyError(
+-                f"Không tìm thấy cột thời gian {self.datetime_col}. "
+-                f"Cột hiện có: {df.columns.tolist()}"
+-            )
+-
+-        if self.cellname_col not in df.columns:
+-            raise KeyError(
+-                f"Không tìm thấy cột cell {self.cellname_col}. "
+-                f"Cột hiện có: {df.columns.tolist()}"
+-            )
++        for column, label in (
++            (self.datetime_col, "thời gian"),
++            (self.ne_col, "NE"),
++            (self.cellname_col, "cell"),
++        ):
++            if column not in df.columns:
++                raise KeyError(
++                    f"Không tìm thấy cột {label} {column}. "
++                    f"Cột hiện có: {df.columns.tolist()}"
++                )
+ 
+         df[self.datetime_col] = pd.to_datetime(df[self.datetime_col], errors="coerce")
+ 
+@@ -103,27 +107,26 @@ class MinioKPINormalizer:
+ 
+         for _, row in df.iterrows():
+             start_time = row[self.datetime_col]
+-
+             if pd.isna(start_time):
+                 continue
+ 
+             period_end = start_time + timedelta(minutes=self.granularity_minutes)
+-            ne_id = str(row[self.cellname_col])
++            ne_id = str(row[self.ne_col]).strip()
++            cell_id = str(row[self.cellname_col]).strip()
+ 
+             for item in self.kpi_mapping:
+                 if item.source_column not in df.columns:
+                     continue
+ 
+                 value = row[item.source_column]
+-
+                 if pd.isna(value):
+-                    # FR-201 cần nhìn thấy null để có thể ghi nhận và loại có lý do,
+-                    # vì vậy FR-101 giữ record nhưng đánh dấu chất lượng MISSING.
++                    # FR-201 cần nhìn thấy null để ghi nhận và loại có lý do.
+                     records.append(
+                         {
+                             "timestamp": start_time.isoformat(),
+                             "period_end": period_end.isoformat(),
+                             "ne_id": ne_id,
++                            "cell_id": cell_id,
+                             "kpi_name": item.canonical_name,
+                             "value": float("nan"),
+                             "unit": item.unit,
+@@ -134,9 +137,7 @@ class MinioKPINormalizer:
+ 
+                 try:
+                     numeric_value = float(value)
+-                except ValueError:
+-                    continue
+-                except TypeError:
++                except (ValueError, TypeError):
+                     continue
+ 
+                 records.append(
+@@ -144,6 +145,7 @@ class MinioKPINormalizer:
+                         "timestamp": start_time.isoformat(),
+                         "period_end": period_end.isoformat(),
+                         "ne_id": ne_id,
++                        "cell_id": cell_id,
+                         "kpi_name": item.canonical_name,
+                         "value": numeric_value,
+                         "unit": item.unit,
+@@ -157,6 +159,7 @@ class MinioKPINormalizer:
+                 "timestamp",
+                 "period_end",
+                 "ne_id",
++                "cell_id",
+                 "kpi_name",
+                 "value",
+                 "unit",
+diff --git a/src/rkaa/domain/data_collector/minio_query_builder.py b/src/rkaa/domain/data_collector/minio_query_builder.py
+index eb1dfa8..b73b654 100644
+--- a/src/rkaa/domain/data_collector/minio_query_builder.py
++++ b/src/rkaa/domain/data_collector/minio_query_builder.py
+@@ -22,24 +22,19 @@ def quote_identifier(name: str) -> str:
+ 
+ def _build_station_filter(
+     *,
+-    cellname_col: str,
++    ne_col: str,
+     station_ids: list[str],
+     params: list[object],
+ ) -> str:
+-    """Tạo điều kiện chỉ đọc cell thuộc các trạm được chọn.
++    """Tạo điều kiện READ-ONLY chỉ lấy đúng các NE/trạm được chọn.
+ 
+-    Quy ước hiện tại: cellname có dạng <station_id> hoặc <station_id>_...
+-    Ví dụ gHM00001 sẽ khớp gHM00001 và gHM00001_30n411.
++    Sau khi schema được tách rõ, ``ne`` là mã trạm/NE còn ``cellname`` là cell_id,
++    vì vậy không còn suy station từ prefix của cellname.
+     """
+-    clauses: list[str] = []
+-    quoted_cellname = quote_identifier(cellname_col)
+-
+-    for station_id in station_ids:
+-        clauses.append(
+-            f"({quoted_cellname} = ? OR starts_with({quoted_cellname}, ?))"
+-        )
+-        params.extend([station_id, f"{station_id}_"])
+ 
++    quoted_ne = quote_identifier(ne_col)
++    clauses = [f"{quoted_ne} = ?" for _ in station_ids]
++    params.extend(station_ids)
+     return f"({' OR '.join(clauses)})"
+ 
+ 
+@@ -48,6 +43,7 @@ def build_minio_kpi_query(
+     bucket: str,
+     selected_columns: list[str],
+     datetime_col: str,
++    ne_col: str,
+     cellname_col: str,
+     start_time: str,
+     end_time: str,
+@@ -79,7 +75,7 @@ def build_minio_kpi_query(
+     if normalized_station_ids:
+         where_clauses.append(
+             _build_station_filter(
+-                cellname_col=cellname_col,
++                ne_col=ne_col,
+                 station_ids=normalized_station_ids,
+                 params=params,
+             )
+diff --git a/src/rkaa/domain/data_quality/duplicate_detector.py b/src/rkaa/domain/data_quality/duplicate_detector.py
+index a06e3ef..839d26d 100644
+--- a/src/rkaa/domain/data_quality/duplicate_detector.py
++++ b/src/rkaa/domain/data_quality/duplicate_detector.py
+@@ -10,7 +10,8 @@ from rkaa.domain.data_quality.models import DataQualityIssue, DuplicateConfig
+ 
+ 
+ class DuplicateDetector:
+-    KEY_COLUMNS = ["timestamp", "ne_id", "kpi_name"]
++    # KPI long-format cần cả cell_id và period_end để không nhầm hai cell/timeslot.
++    KEY_COLUMNS = ["timestamp", "period_end", "ne_id", "cell_id", "kpi_name"]
+ 
+     def __init__(self, config: DuplicateConfig) -> None:
+         self.config = config
+@@ -49,7 +50,6 @@ class DuplicateDetector:
+             )
+ 
+             if exact:
+-                # Giữ record đầu tiên; các bản sao hoàn toàn dư thừa được bỏ.
+                 for idx in group.index[1:]:
+                     row = working.loc[idx]
+                     drop_indexes.append(int(idx))
+@@ -59,8 +59,10 @@ class DuplicateDetector:
+                             severity="INFO",
+                             row_index=int(row["_dq_row_id"]),
+                             ne_id=str(row["ne_id"]),
++                            cell_id=str(row["cell_id"]),
+                             kpi_name=str(row["kpi_name"]),
+                             timestamp=row["timestamp"],
++                            period_end=row["period_end"],
+                             value=row["value"],
+                             detail="bản ghi duplicate exact; giữ record xuất hiện đầu tiên",
+                         )
+@@ -74,8 +76,10 @@ class DuplicateDetector:
+                             severity="ERROR",
+                             row_index=int(row["_dq_row_id"]),
+                             ne_id=str(row["ne_id"]),
++                            cell_id=str(row["cell_id"]),
+                             kpi_name=str(row["kpi_name"]),
+                             timestamp=row["timestamp"],
++                            period_end=row["period_end"],
+                             value=row["value"],
+                             detail=f"cùng key nhưng value khác nhau: {values}",
+                         )
+diff --git a/src/rkaa/domain/data_quality/gap_detector.py b/src/rkaa/domain/data_quality/gap_detector.py
+index 423f1e5..39179f7 100644
+--- a/src/rkaa/domain/data_quality/gap_detector.py
++++ b/src/rkaa/domain/data_quality/gap_detector.py
+@@ -1,4 +1,4 @@
+-"""Phát hiện khoảng trống dữ liệu theo từng NE + KPI."""
++"""Phát hiện khoảng trống dữ liệu theo từng NE + Cell + KPI."""
+ 
+ from __future__ import annotations
+ 
+@@ -19,7 +19,10 @@ class GapDetector:
+         warning = pd.Timedelta(minutes=self.config.warning_threshold_minutes)
+         issues: list[DataQualityIssue] = []
+ 
+-        for (_, _), group in df.groupby(["ne_id", "kpi_name"], sort=False):
++        for (_, _, _), group in df.groupby(
++            ["ne_id", "cell_id", "kpi_name"],
++            sort=False,
++        ):
+             valid = group[group["timestamp"].notna()].sort_values("timestamp")
+             if len(valid) < 2:
+                 continue
+@@ -38,8 +41,10 @@ class GapDetector:
+                         severity=severity,
+                         row_index=int(row["_dq_row_id"]),
+                         ne_id=str(row["ne_id"]),
++                        cell_id=str(row["cell_id"]),
+                         kpi_name=str(row["kpi_name"]),
+                         timestamp=row["timestamp"],
++                        period_end=row["period_end"],
+                         value=row["value"],
+                         detail=(
+                             f"previous={previous_ts}; current={row['timestamp']}; "
+diff --git a/src/rkaa/domain/data_quality/local_spike_detector.py b/src/rkaa/domain/data_quality/local_spike_detector.py
+index aa8172d..b909812 100644
+--- a/src/rkaa/domain/data_quality/local_spike_detector.py
++++ b/src/rkaa/domain/data_quality/local_spike_detector.py
+@@ -8,11 +8,7 @@ from rkaa.domain.data_quality.models import DataQualityIssue, LocalSpikeConfig
+ 
+ 
+ class LocalSpikeDetector:
+-    """Phát hiện điểm lệch mạnh so với lịch sử gần của cùng NE + KPI.
+-
+-    Dùng các mẫu *trước* điểm hiện tại để tránh điểm đang xét tự làm thay đổi
+-    baseline của chính nó. MAD=0 hoặc thiếu mẫu thì group tự skip.
+-    """
++    """Phát hiện điểm lệch mạnh theo lịch sử của đúng NE + Cell + KPI."""
+ 
+     def __init__(self, config: LocalSpikeConfig) -> None:
+         self.config = config
+@@ -22,7 +18,10 @@ class LocalSpikeDetector:
+             return []
+ 
+         issues: list[DataQualityIssue] = []
+-        for (_, _), group in df.groupby(["ne_id", "kpi_name"], sort=False):
++        for (_, _, _), group in df.groupby(
++            ["ne_id", "cell_id", "kpi_name"],
++            sort=False,
++        ):
+             group = group[group["timestamp"].notna() & group["value"].notna()].sort_values(
+                 "timestamp"
+             )
+@@ -51,8 +50,10 @@ class LocalSpikeDetector:
+                         severity="WARNING",
+                         row_index=int(row["_dq_row_id"]),
+                         ne_id=str(row["ne_id"]),
++                        cell_id=str(row["cell_id"]),
+                         kpi_name=str(row["kpi_name"]),
+                         timestamp=row["timestamp"],
++                        period_end=row["period_end"],
+                         value=row["value"],
+                         detail=(
+                             f"robust_z={robust_z.loc[idx]:.4f}; "
+diff --git a/src/rkaa/domain/data_quality/models.py b/src/rkaa/domain/data_quality/models.py
+index 2c4dbd3..474aa47 100644
+--- a/src/rkaa/domain/data_quality/models.py
++++ b/src/rkaa/domain/data_quality/models.py
+@@ -61,8 +61,10 @@ class DataQualityIssue:
+     severity: str
+     row_index: int | None
+     ne_id: str | None
++    cell_id: str | None
+     kpi_name: str | None
+     timestamp: object
++    period_end: object
+     value: object
+     detail: str
+ 
+diff --git a/src/rkaa/domain/data_quality/normalizer.py b/src/rkaa/domain/data_quality/normalizer.py
+index c1ec8fc..3f954b4 100644
+--- a/src/rkaa/domain/data_quality/normalizer.py
++++ b/src/rkaa/domain/data_quality/normalizer.py
+@@ -7,7 +7,15 @@ import pandas as pd
+ from rkaa.domain.data_quality.models import DataQualityIssue, NormalizationConfig
+ 
+ 
+-_REQUIRED_COLUMNS = ("timestamp", "ne_id", "kpi_name", "value")
++# Một record KPI long-format được định danh theo thời gian + NE + Cell + KPI.
++_REQUIRED_COLUMNS = (
++    "timestamp",
++    "period_end",
++    "ne_id",
++    "cell_id",
++    "kpi_name",
++    "value",
++)
+ 
+ 
+ class DataQualityNormalizer:
+@@ -23,7 +31,7 @@ class DataQualityNormalizer:
+         working["_dq_row_id"] = range(len(working))
+         issues: list[DataQualityIssue] = []
+ 
+-        for column in ("ne_id", "kpi_name", "unit", "quality_flag"):
++        for column in ("ne_id", "cell_id", "kpi_name", "unit", "quality_flag"):
+             if column in working.columns:
+                 working[column] = working[column].astype("string").str.strip()
+ 
+@@ -41,20 +49,39 @@ class DataQualityNormalizer:
+                     severity="ERROR",
+                     row_index=int(working.at[idx, "_dq_row_id"]),
+                     ne_id=str(working.at[idx, "ne_id"]),
++                    cell_id=str(working.at[idx, "cell_id"]),
+                     kpi_name=str(working.at[idx, "kpi_name"]),
+                     timestamp=original_timestamp.at[idx],
++                    period_end=working.at[idx, "period_end"],
+                     value=working.at[idx, "value"],
+                     detail="timestamp không parse được",
+                 )
+             )
+         working["timestamp"] = parsed_timestamp
+ 
+-        if "period_end" in working.columns:
+-            working["period_end"] = pd.to_datetime(
+-                working["period_end"],
+-                errors="coerce",
+-                utc=True,
++        original_period_end = working["period_end"].copy()
++        parsed_period_end = pd.to_datetime(
++            original_period_end,
++            errors="coerce",
++            utc=True,
++        )
++        invalid_period_end = parsed_period_end.isna() & original_period_end.notna()
++        for idx in working.index[invalid_period_end]:
++            issues.append(
++                DataQualityIssue(
++                    issue_type="INVALID_PERIOD_END",
++                    severity="ERROR",
++                    row_index=int(working.at[idx, "_dq_row_id"]),
++                    ne_id=str(working.at[idx, "ne_id"]),
++                    cell_id=str(working.at[idx, "cell_id"]),
++                    kpi_name=str(working.at[idx, "kpi_name"]),
++                    timestamp=working.at[idx, "timestamp"],
++                    period_end=original_period_end.at[idx],
++                    value=working.at[idx, "value"],
++                    detail="period_end không parse được",
++                )
+             )
++        working["period_end"] = parsed_period_end
+ 
+         original_value = working["value"].copy()
+         numeric_value = pd.to_numeric(original_value, errors="coerce")
+@@ -66,8 +93,10 @@ class DataQualityNormalizer:
+                     severity="ERROR",
+                     row_index=int(working.at[idx, "_dq_row_id"]),
+                     ne_id=str(working.at[idx, "ne_id"]),
++                    cell_id=str(working.at[idx, "cell_id"]),
+                     kpi_name=str(working.at[idx, "kpi_name"]),
+                     timestamp=working.at[idx, "timestamp"],
++                    period_end=working.at[idx, "period_end"],
+                     value=original_value.at[idx],
+                     detail="value không chuyển được sang số",
+                 )
+@@ -75,7 +104,7 @@ class DataQualityNormalizer:
+         working["value"] = numeric_value
+ 
+         working = working.sort_values(
+-            ["ne_id", "kpi_name", "timestamp", "_dq_row_id"],
++            ["ne_id", "cell_id", "kpi_name", "timestamp", "period_end", "_dq_row_id"],
+             na_position="last",
+             kind="stable",
+         ).reset_index(drop=True)
+diff --git a/src/rkaa/domain/data_quality/range_validator.py b/src/rkaa/domain/data_quality/range_validator.py
+index a080dc3..9d0814c 100644
+--- a/src/rkaa/domain/data_quality/range_validator.py
++++ b/src/rkaa/domain/data_quality/range_validator.py
+@@ -35,8 +35,10 @@ class RangeValidator:
+                         severity="ERROR",
+                         row_index=int(row["_dq_row_id"]),
+                         ne_id=str(row["ne_id"]),
++                        cell_id=str(row["cell_id"]),
+                         kpi_name=str(row["kpi_name"]),
+                         timestamp=row["timestamp"],
++                        period_end=row["period_end"],
+                         value=value,
+                         detail=reason,
+                     )
+diff --git a/src/rkaa/domain/data_quality/service.py b/src/rkaa/domain/data_quality/service.py
+index bf3a68c..7bf12f7 100644
+--- a/src/rkaa/domain/data_quality/service.py
++++ b/src/rkaa/domain/data_quality/service.py
+@@ -22,9 +22,11 @@ _ISSUE_COLUMNS = [
+     "issue_type",
+     "severity",
+     "row_index",
++    "timestamp",
++    "period_end",
+     "ne_id",
++    "cell_id",
+     "kpi_name",
+-    "timestamp",
+     "value",
+     "detail",
+ ]
+@@ -43,9 +45,11 @@ class DataQualityService:
+                 "issue_type": item.issue_type,
+                 "severity": item.severity,
+                 "row_index": item.row_index,
++                "timestamp": item.timestamp,
++                "period_end": item.period_end,
+                 "ne_id": item.ne_id,
++                "cell_id": item.cell_id,
+                 "kpi_name": item.kpi_name,
+-                "timestamp": item.timestamp,
+                 "value": item.value,
+                 "detail": item.detail,
+             }
+diff --git a/src/rkaa/domain/noise_filter/impact_window_filter.py b/src/rkaa/domain/noise_filter/impact_window_filter.py
+index 21ae57e..0c98f16 100644
+--- a/src/rkaa/domain/noise_filter/impact_window_filter.py
++++ b/src/rkaa/domain/noise_filter/impact_window_filter.py
+@@ -22,15 +22,23 @@ class ImpactWindowFilter:
+         self.windows = list(windows or [])
+ 
+     def _match_ne(self, series: pd.Series, ne_id: str) -> pd.Series:
++        """Khớp NE theo mã NE thực tế; không suy NE từ prefix cell_id."""
+         values = series.astype(str)
+-        if self.config.match_mode == "exact":
++        if self.config.match_mode in {"exact", "exact_or_prefix"}:
++            # exact_or_prefix được giữ để tương thích config cũ, nhưng schema mới
++            # đã có ne_id riêng nên phép khớp đúng là exact.
+             return values == ne_id
+-        if self.config.match_mode == "exact_or_prefix":
+-            return (values == ne_id) | values.str.startswith(f"{ne_id}_")
+         raise ValueError(f"match_mode không hỗ trợ: {self.config.match_mode}")
+ 
++    @staticmethod
++    def _match_cell(series: pd.Series, cell_id: str | None) -> pd.Series:
++        """cell_id=None áp dụng window cho toàn NE; có cell_id thì khớp chính xác."""
++        if cell_id is None:
++            return pd.Series(True, index=series.index)
++        return series.astype(str) == cell_id
++
+     def apply(self, df: pd.DataFrame) -> FilterOutcome:
+-        require_columns(df, ("timestamp", "ne_id"))
++        require_columns(df, ("timestamp", "ne_id", "cell_id"))
+         if not self.windows:
+             return FilterOutcome(
+                 cleaned_df=df.copy(),
+@@ -59,6 +67,7 @@ class ImpactWindowFilter:
+                 t1 = t1.tz_convert("UTC")
+ 
+             ne_mask = self._match_ne(df["ne_id"], window.ne_id)
++            cell_mask = self._match_cell(df["cell_id"], window.cell_id)
+             time_mask = timestamps >= t1
+ 
+             if window.t2_utc is not None:
+@@ -69,11 +78,12 @@ class ImpactWindowFilter:
+                     t2 = t2.tz_convert("UTC")
+                 time_mask &= timestamps < t2
+ 
+-            current = ne_mask & time_mask
++            current = ne_mask & cell_mask & time_mask
+             new_rows = current & ~mask
+             reasons.loc[new_rows] = window.reason
+             details.loc[new_rows] = (
+                 f"source={window.source}; ne_id={window.ne_id}; "
++                f"cell_id={window.cell_id or 'ALL'}; "
+                 f"t1={window.t1_utc.isoformat()}; "
+                 f"t2={window.t2_utc.isoformat() if window.t2_utc else 'ONGOING'}"
+             )
+diff --git a/src/rkaa/domain/noise_filter/models.py b/src/rkaa/domain/noise_filter/models.py
+index f0e565e..07abe28 100644
+--- a/src/rkaa/domain/noise_filter/models.py
++++ b/src/rkaa/domain/noise_filter/models.py
+@@ -87,12 +87,14 @@ class NoiseFilterConfig:
+ 
+ @dataclass(frozen=True, slots=True)
+ class ExclusionWindow:
+-    """Khoảng thời gian không dùng cho baseline của một NE.
++    """Khoảng thời gian không dùng cho baseline của NE hoặc một cell cụ thể.
+ 
+-    ``t2_utc=None`` biểu diễn sự kiện vẫn đang diễn ra.
++    ``cell_id=None`` nghĩa là áp dụng cho toàn NE. ``t2_utc=None`` biểu diễn
++    sự kiện vẫn đang diễn ra.
+     """
+ 
+     ne_id: str
++    cell_id: str | None
+     t1_utc: datetime
+     t2_utc: datetime | None
+     reason: str
+diff --git a/src/rkaa/domain/noise_filter/restart_filter.py b/src/rkaa/domain/noise_filter/restart_filter.py
+index 55b40f7..a889a17 100644
+--- a/src/rkaa/domain/noise_filter/restart_filter.py
++++ b/src/rkaa/domain/noise_filter/restart_filter.py
+@@ -28,11 +28,13 @@ from rkaa.domain.noise_filter.utils import parse_timestamp_series, require_colum
+ class CounterResetEvidence:
+     """Bằng chứng cho một lần reset của MỘT counter trên một NE.
+ 
++    Mỗi evidence thuộc đúng một chuỗi ``ne_id + cell_id + metric_name``.
+     ``previous_value`` là giá trị trước reset, ``current_value`` là giá trị sau khi
+     giảm mạnh, còn ``drop_ratio`` là tỷ lệ giảm so với giá trị trước đó.
+     """
+ 
+     ne_id: str
++    cell_id: str
+     metric_name: str
+     timestamp: pd.Timestamp
+     previous_value: float
+@@ -85,7 +87,7 @@ class RestartFilter:
+         return non_decreasing and recovered
+ 
+     def detect_counter_resets(self, df: pd.DataFrame) -> list[CounterResetEvidence]:
+-        """Tìm reset candidate cho từng ``ne_id + kpi_name``.
++        """Tìm reset candidate cho từng ``ne_id + cell_id + kpi_name``.
+ 
+         Một điểm chỉ được coi là reset khi đồng thời thỏa:
+         - metric nằm trong ``eligible_metrics``;
+@@ -107,12 +109,15 @@ class RestartFilter:
+         # Chuẩn hóa timestamp và value để so sánh theo thời gian và tính tỷ lệ giảm.
+         work["_timestamp"] = parse_timestamp_series(work["timestamp"])
+         work["_value"] = pd.to_numeric(work["value"], errors="coerce")
+-        work = work.sort_values(["ne_id", "kpi_name", "_timestamp"])
++        work = work.sort_values(["ne_id", "cell_id", "kpi_name", "_timestamp"])
+ 
+         evidence: list[CounterResetEvidence] = []
+ 
+-        # Mỗi counter của mỗi NE phải được xét độc lập.
+-        for (ne_id, metric_name), group in work.groupby(["ne_id", "kpi_name"], sort=False):
++        # Mỗi counter của mỗi cell trong NE phải được xét độc lập.
++        for (ne_id, cell_id, metric_name), group in work.groupby(
++            ["ne_id", "cell_id", "kpi_name"],
++            sort=False,
++        ):
+             timestamps = group["_timestamp"].tolist()
+             values = group["_value"].tolist()
+ 
+@@ -149,6 +154,7 @@ class RestartFilter:
+                 evidence.append(
+                     CounterResetEvidence(
+                         ne_id=str(ne_id),
++                        cell_id=str(cell_id),
+                         metric_name=str(metric_name),
+                         timestamp=timestamps[index],
+                         previous_value=previous,
+@@ -222,7 +228,7 @@ class RestartFilter:
+         kèm ``filter_stage``, ``filter_reason`` và ``detail`` để audit.
+         """
+ 
+-        require_columns(df, ("timestamp", "ne_id", "kpi_name", "value"))
++        require_columns(df, ("timestamp", "ne_id", "cell_id", "kpi_name", "value"))
+ 
+         # Không có cumulative counter được cấu hình -> tự bỏ qua filter.
+         if not self.config.eligible_metrics:
+diff --git a/src/rkaa/domain/noise_filter/service.py b/src/rkaa/domain/noise_filter/service.py
+index ad2fdc8..0a69e6a 100644
+--- a/src/rkaa/domain/noise_filter/service.py
++++ b/src/rkaa/domain/noise_filter/service.py
+@@ -26,7 +26,10 @@ class NoiseFilterService:
+         self.exclusion_windows = list(exclusion_windows or [])
+ 
+     def filter(self, df: pd.DataFrame) -> CleanResult:
+-        require_columns(df, ("timestamp", "ne_id", "kpi_name", "value"))
++        require_columns(
++            df,
++            ("timestamp", "period_end", "ne_id", "cell_id", "kpi_name", "value"),
++        )
+ 
+         current = df.copy()
+         excluded_parts: list[pd.DataFrame] = []
+diff --git a/src/rkaa/domain/noise_filter/statistical_outlier_filter.py b/src/rkaa/domain/noise_filter/statistical_outlier_filter.py
+index f24d5e7..932b462 100644
+--- a/src/rkaa/domain/noise_filter/statistical_outlier_filter.py
++++ b/src/rkaa/domain/noise_filter/statistical_outlier_filter.py
+@@ -1,7 +1,7 @@
+ """Bước 4 FR-201: phát hiện outlier bằng IQR và/hoặc Z-score.
+ 
+ File này chỉ xử lý *statistical outlier* trên dữ liệu KPI dạng long-format.
+-Mỗi nhóm dữ liệu được xét độc lập theo cặp ``ne_id + kpi_name`` để tránh
++Mỗi nhóm dữ liệu được xét độc lập theo cặp ``ne_id + cell_id + kpi_name`` để tránh
+ trộn các trạm hoặc KPI có phân phối/thang đo khác nhau.
+ 
+ Hai phương pháp được hỗ trợ:
+@@ -25,7 +25,7 @@ from rkaa.domain.noise_filter.utils import require_columns, split_by_mask
+ 
+ 
+ class StatisticalOutlierFilter:
+-    """Phát hiện outlier thống kê theo từng ``ne_id + kpi_name``.
++    """Phát hiện outlier thống kê theo từng ``ne_id + cell_id + kpi_name``.
+ 
+     ``config`` quyết định:
+     - IQR có bật hay không, multiplier và số mẫu tối thiểu.
+@@ -41,16 +41,17 @@ class StatisticalOutlierFilter:
+ 
+         Yêu cầu đầu vào có tối thiểu 3 cột:
+         - ``ne_id``: định danh NE/trạm.
++        - ``cell_id``: định danh cell trong NE.
+         - ``kpi_name``: tên KPI.
+         - ``value``: giá trị KPI cần kiểm tra.
+ 
+-        Mỗi nhóm ``ne_id + kpi_name`` được tính IQR/Z-score riêng.
++        Mỗi nhóm ``ne_id + cell_id + kpi_name`` được tính IQR/Z-score riêng.
+         Nếu số mẫu của một nhóm nhỏ hơn ``min_samples`` thì phương pháp tương ứng
+         tự động SKIP cho riêng nhóm đó; dữ liệu của nhóm vẫn được giữ lại.
+         """
+ 
+         # Đảm bảo input có đủ cột bắt buộc trước khi tính toán.
+-        require_columns(df, ("ne_id", "kpi_name", "value"))
++        require_columns(df, ("ne_id", "cell_id", "kpi_name", "value"))
+ 
+         # Nếu cả IQR và Z-score đều tắt thì không làm gì với dữ liệu.
+         # Trả lại bản copy của df và một excluded_df rỗng để giữ cùng interface.
+@@ -79,7 +80,7 @@ class StatisticalOutlierFilter:
+         z_detail = pd.Series("", index=df.index, dtype="object")
+ 
+         # summary dùng để log/đánh giá trạng thái của từng phương pháp.
+-        # "group" ở đây nghĩa là một cặp ne_id + kpi_name.
++        # "group" ở đây nghĩa là một chuỗi thời gian ne_id + cell_id + kpi_name.
+         summary = {
+             "status": "ENABLED",
+             "iqr_groups_processed": 0,
+@@ -90,12 +91,14 @@ class StatisticalOutlierFilter:
+             "z_groups_skipped_zero_std": 0,
+         }
+ 
+-        # Tạo cột tạm _value chứa dữ liệu numeric rồi group theo NE và KPI.
+-        # Ví dụ gHM00001 + ENDC_SSR được tính riêng với
+-        # gHM00001 + NSA_PS_TRAFFIC hay gHM00002 + ENDC_SSR.
+-        grouped = df.assign(_value=numeric).groupby(["ne_id", "kpi_name"], sort=False)
++        # Tạo cột tạm _value rồi group theo đúng chuỗi thời gian NE + Cell + KPI.
++        # Hai cell khác nhau của cùng NE không được trộn chung baseline thống kê.
++        grouped = df.assign(_value=numeric).groupby(
++            ["ne_id", "cell_id", "kpi_name"],
++            sort=False,
++        )
+ 
+-        for (_, _), group in grouped:
++        for (_, _, _), group in grouped:
+             # Bỏ NaN trước khi tính thống kê.
+             values = group["_value"].dropna()
+             sample_count = len(values)
+diff --git a/tests/integration/test_data_quality_pipeline.py b/tests/integration/test_data_quality_pipeline.py
+index bb3221a..808d975 100644
+--- a/tests/integration/test_data_quality_pipeline.py
++++ b/tests/integration/test_data_quality_pipeline.py
+@@ -22,6 +22,7 @@ def test_fr203_pipeline_generates_quality_issues_and_summary() -> None:
+                 "2026-08-10 03:15:00",
+             ],
+             "ne_id": ["gHM00001"] * 3,
++            "cell_id": ["CELL_A"] * 3,
+             "kpi_name": ["ENDC_SSR"] * 3,
+             "value": [99.0, 99.0, 120.0],
+             "unit": ["%"] * 3,
+@@ -34,4 +35,6 @@ def test_fr203_pipeline_generates_quality_issues_and_summary() -> None:
+         set(result.issues_df["issue_type"])
+     )
+     assert result.summary["gaps_over_2h"] == 1
++    assert "cell_id" in result.issues_df.columns
++    assert "period_end" in result.issues_df.columns
+     assert not result.summary_df.empty
+diff --git a/tests/integration/test_noise_filter_pipeline.py b/tests/integration/test_noise_filter_pipeline.py
+index 72e8eae..4bfc0d9 100644
+--- a/tests/integration/test_noise_filter_pipeline.py
++++ b/tests/integration/test_noise_filter_pipeline.py
+@@ -46,6 +46,7 @@ filters:
+                 "2026-07-01 01:00:00",
+             ],
+             "ne_id": ["NE_A"] * 4,
++            "cell_id": ["CELL_A"] * 4,
+             "kpi_name": ["ENDC_SSR"] * 4,
+             "value": [99.0, -999.0, 50.0, 120.0],
+             "unit": ["%"] * 4,
+@@ -55,6 +56,7 @@ filters:
+     windows = [
+         ExclusionWindow(
+             ne_id="NE_A",
++            cell_id="CELL_A",
+             t1_utc=datetime(2026, 7, 1, 0, 30, tzinfo=timezone.utc),
+             t2_utc=datetime(2026, 7, 1, 0, 45, tzinfo=timezone.utc),
+             reason="SOFTWARE_UPGRADE",
+diff --git a/tests/integration/test_wide_to_long_pipeline.py b/tests/integration/test_wide_to_long_pipeline.py
+index c4d095a..7a514b6 100644
+--- a/tests/integration/test_wide_to_long_pipeline.py
++++ b/tests/integration/test_wide_to_long_pipeline.py
+@@ -3,12 +3,13 @@ import pandas as pd
+ from rkaa.domain.data_collector.minio_kpi_normalizer import MinioKPINormalizer
+ 
+ 
+-def test_two_wide_rows_create_fourteen_long_rows() -> None:
++def test_two_wide_rows_create_fourteen_long_rows_with_ne_and_cell() -> None:
+     wide_df = pd.DataFrame({
+         "datetime": [
+             pd.Timestamp("2026-07-01 00:00:00"),
+             pd.Timestamp("2026-07-01 00:15:00"),
+         ],
++        "ne": ["gHM00001", "gHM00001"],
+         "cellname": ["CELL_A", "CELL_A"],
+         "ENDC SSR VTNET (%)": [99.0, 98.0],
+         "ENDC CDR VTNET (%)": [1.0, 2.0],
+@@ -21,5 +22,6 @@ def test_two_wide_rows_create_fourteen_long_rows() -> None:
+ 
+     result = MinioKPINormalizer().normalize(wide_df)
+ 
+-    assert result.shape == (14, 7)
+-    assert set(result["ne_id"]) == {"CELL_A"}
++    assert result.shape == (14, 8)
++    assert set(result["ne_id"]) == {"gHM00001"}
++    assert set(result["cell_id"]) == {"CELL_A"}
+diff --git a/tests/unit/data_quality/test_data_quality_service.py b/tests/unit/data_quality/test_data_quality_service.py
+index c80d668..8d46771 100644
+--- a/tests/unit/data_quality/test_data_quality_service.py
++++ b/tests/unit/data_quality/test_data_quality_service.py
+@@ -25,28 +25,65 @@ def _base_config() -> DataQualityConfig:
+     )
+ 
+ 
+-def test_exact_duplicate_is_reported_and_one_copy_is_kept() -> None:
+-    df = pd.DataFrame(
++def _df(
++    timestamps: list[str],
++    values: list[float],
++    *,
++    cells: list[str] | None = None,
++) -> pd.DataFrame:
++    cells = cells or ["CELL_A"] * len(timestamps)
++    starts = pd.to_datetime(timestamps)
++    period_ends = (starts + pd.Timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S").tolist()
++    return pd.DataFrame(
+         {
+-            "timestamp": ["2026-08-10 00:00:00", "2026-08-10 00:00:00"],
+-            "ne_id": ["gHM00001", "gHM00001"],
+-            "kpi_name": ["ENDC_SSR", "ENDC_SSR"],
+-            "value": [99.0, 99.0],
++            "timestamp": timestamps,
++            "period_end": period_ends,
++            "ne_id": ["gHM00001"] * len(timestamps),
++            "cell_id": cells,
++            "kpi_name": ["ENDC_SSR"] * len(timestamps),
++            "value": values,
+         }
+     )
++
++
++def test_exact_duplicate_is_reported_and_one_copy_is_kept() -> None:
++    df = _df(
++        ["2026-08-10 00:00:00", "2026-08-10 00:00:00"],
++        [99.0, 99.0],
++    )
+     result = DataQualityService(_base_config()).check(df)
+     assert len(result.quality_df) == 1
+     assert "DUPLICATE_EXACT" in set(result.issues_df["issue_type"])
+ 
+ 
++def test_same_time_same_ne_same_kpi_but_different_cells_are_not_duplicates() -> None:
++    df = _df(
++        ["2026-08-10 00:00:00", "2026-08-10 00:00:00"],
++        [99.0, 99.0],
++        cells=["CELL_A", "CELL_B"],
++    )
++    result = DataQualityService(_base_config()).check(df)
++    assert len(result.quality_df) == 2
++    assert "DUPLICATE_EXACT" not in set(result.issues_df["issue_type"])
++
++
++def test_same_timestamp_ne_cell_kpi_but_different_period_end_are_not_duplicates() -> None:
++    df = _df(
++        ["2026-08-10 00:00:00", "2026-08-10 00:00:00"],
++        [99.0, 99.0],
++    )
++    df.loc[1, "period_end"] = "2026-08-10 00:30:00"
++
++    result = DataQualityService(_base_config()).check(df)
++
++    assert len(result.quality_df) == 2
++    assert "DUPLICATE_EXACT" not in set(result.issues_df["issue_type"])
++
++
+ def test_conflicting_duplicate_is_kept_and_flagged() -> None:
+-    df = pd.DataFrame(
+-        {
+-            "timestamp": ["2026-08-10 00:00:00", "2026-08-10 00:00:00"],
+-            "ne_id": ["gHM00001", "gHM00001"],
+-            "kpi_name": ["ENDC_SSR", "ENDC_SSR"],
+-            "value": [99.0, 80.0],
+-        }
++    df = _df(
++        ["2026-08-10 00:00:00", "2026-08-10 00:00:00"],
++        [99.0, 80.0],
+     )
+     result = DataQualityService(_base_config()).check(df)
+     assert len(result.quality_df) == 2
+@@ -55,29 +92,30 @@ def test_conflicting_duplicate_is_kept_and_flagged() -> None:
+ 
+ 
+ def test_gap_over_two_hours_is_warning() -> None:
+-    df = pd.DataFrame(
+-        {
+-            "timestamp": ["2026-08-10 00:00:00", "2026-08-10 02:30:00"],
+-            "ne_id": ["gHM00001", "gHM00001"],
+-            "kpi_name": ["ENDC_SSR", "ENDC_SSR"],
+-            "value": [99.0, 98.0],
+-        }
++    df = _df(
++        ["2026-08-10 00:00:00", "2026-08-10 02:30:00"],
++        [99.0, 98.0],
+     )
+     result = DataQualityService(_base_config()).check(df)
+     gap = result.issues_df[result.issues_df["issue_type"] == "GAP"].iloc[0]
+     assert gap["severity"] == "WARNING"
++    assert gap["cell_id"] == "CELL_A"
+     assert result.summary["gaps_over_2h"] == 1
+ 
+ 
+-def test_invalid_range_is_flagged_but_record_is_kept() -> None:
+-    df = pd.DataFrame(
+-        {
+-            "timestamp": ["2026-08-10 00:00:00"],
+-            "ne_id": ["gHM00001"],
+-            "kpi_name": ["ENDC_SSR"],
+-            "value": [120.0],
+-        }
++def test_different_cells_do_not_create_false_gap_between_each_other() -> None:
++    df = _df(
++        ["2026-08-10 00:00:00", "2026-08-10 02:30:00"],
++        [99.0, 98.0],
++        cells=["CELL_A", "CELL_B"],
+     )
+     result = DataQualityService(_base_config()).check(df)
++    assert "GAP" not in set(result.issues_df["issue_type"])
++
++
++def test_invalid_range_is_flagged_but_record_is_kept() -> None:
++    df = _df(["2026-08-10 00:00:00"], [120.0])
++    result = DataQualityService(_base_config()).check(df)
+     assert len(result.quality_df) == 1
+     assert "INVALID_RANGE" in result.quality_df.iloc[0]["data_quality_flags"]
++    assert result.issues_df.iloc[0]["cell_id"] == "CELL_A"
+diff --git a/tests/unit/data_quality/test_local_spike_detector.py b/tests/unit/data_quality/test_local_spike_detector.py
+index 2d22279..5ba7842 100644
+--- a/tests/unit/data_quality/test_local_spike_detector.py
++++ b/tests/unit/data_quality/test_local_spike_detector.py
+@@ -9,7 +9,9 @@ def test_local_spike_uses_previous_samples_only() -> None:
+     df = pd.DataFrame(
+         {
+             "timestamp": timestamps,
++            "period_end": timestamps + pd.Timedelta(minutes=15),
+             "ne_id": ["gHM00001"] * 7,
++            "cell_id": ["CELL_A"] * 7,
+             "kpi_name": ["ENDC_SSR"] * 7,
+             "value": [98.0, 99.0, 98.5, 99.2, 98.8, 99.1, 50.0],
+             "_dq_row_id": list(range(7)),
+@@ -27,3 +29,4 @@ def test_local_spike_uses_previous_samples_only() -> None:
+     assert len(issues) == 1
+     assert issues[0].issue_type == "LOCAL_SPIKE"
+     assert issues[0].row_index == 6
++    assert issues[0].cell_id == "CELL_A"
+diff --git a/tests/unit/noise_filter/test_impact_window_filter.py b/tests/unit/noise_filter/test_impact_window_filter.py
+index b810ca6..412e441 100644
+--- a/tests/unit/noise_filter/test_impact_window_filter.py
++++ b/tests/unit/noise_filter/test_impact_window_filter.py
+@@ -6,38 +6,64 @@ from rkaa.domain.noise_filter.impact_window_filter import ImpactWindowFilter
+ from rkaa.domain.noise_filter.models import ExclusionWindow, ImpactWindowConfig
+ 
+ 
+-def test_impact_window_excludes_matching_station_prefix_inside_half_open_window() -> None:
+-    df = pd.DataFrame(
++def _df() -> pd.DataFrame:
++    return pd.DataFrame(
+         {
+             "timestamp": [
+                 "2026-07-01 00:00:00",
+                 "2026-07-01 00:15:00",
+-                "2026-07-01 00:30:00",
++                "2026-07-01 00:15:00",
+                 "2026-07-01 00:15:00",
+             ],
+-            "ne_id": ["gHM00001_30", "gHM00001_30", "gHM00001_30", "gHM00002_30"],
++            "period_end": [
++                "2026-07-01 00:15:00",
++                "2026-07-01 00:30:00",
++                "2026-07-01 00:30:00",
++                "2026-07-01 00:30:00",
++            ],
++            "ne_id": ["gHM00001", "gHM00001", "gHM00001", "gHM00002"],
++            "cell_id": ["CELL_A", "CELL_A", "CELL_B", "CELL_A"],
+             "kpi_name": ["ENDC_SSR"] * 4,
+-            "value": [99.0, 50.0, 98.0, 97.0],
++            "value": [99.0, 50.0, 60.0, 97.0],
+         }
+     )
++
++
++def test_cell_scoped_window_excludes_only_matching_ne_and_cell() -> None:
+     window = ExclusionWindow(
+         ne_id="gHM00001",
++        cell_id="CELL_A",
+         t1_utc=datetime(2026, 7, 1, 0, 15, tzinfo=timezone.utc),
+         t2_utc=datetime(2026, 7, 1, 0, 30, tzinfo=timezone.utc),
+         reason="SOFTWARE_UPGRADE",
+-        source="FR103:test",
++        source="FR202:test",
+     )
+     rule = ImpactWindowFilter(
+         ImpactWindowConfig(
+             enabled=True,
+             excluded_impact_types=("SOFTWARE_UPGRADE",),
+-            match_mode="exact_or_prefix",
++            match_mode="exact",
+         ),
+         [window],
+     )
+ 
+-    result = rule.apply(df)
++    result = rule.apply(_df())
+ 
+     assert len(result.excluded_df) == 1
++    assert result.excluded_df.iloc[0]["cell_id"] == "CELL_A"
+     assert result.excluded_df.iloc[0]["filter_reason"] == "SOFTWARE_UPGRADE"
+-    assert len(result.cleaned_df) == 3
++
++
++def test_ne_scoped_window_with_no_cell_excludes_all_cells_of_ne() -> None:
++    window = ExclusionWindow(
++        ne_id="gHM00001",
++        cell_id=None,
++        t1_utc=datetime(2026, 7, 1, 0, 15, tzinfo=timezone.utc),
++        t2_utc=datetime(2026, 7, 1, 0, 30, tzinfo=timezone.utc),
++        reason="SOFTWARE_UPGRADE",
++        source="FR202:test",
++    )
++    result = ImpactWindowFilter(ImpactWindowConfig(match_mode="exact"), [window]).apply(_df())
++
++    assert len(result.excluded_df) == 2
++    assert set(result.excluded_df["cell_id"]) == {"CELL_A", "CELL_B"}
+diff --git a/tests/unit/noise_filter/test_noise_filter_service.py b/tests/unit/noise_filter/test_noise_filter_service.py
+index 55486c5..0a95ff1 100644
+--- a/tests/unit/noise_filter/test_noise_filter_service.py
++++ b/tests/unit/noise_filter/test_noise_filter_service.py
+@@ -18,6 +18,7 @@ def test_service_returns_cleaned_and_excluded_dataframes() -> None:
+             "timestamp": ["2026-07-01 00:00:00"] * 3,
+             "period_end": ["2026-07-01 00:15:00"] * 3,
+             "ne_id": ["NE_A"] * 3,
++            "cell_id": ["CELL_A"] * 3,
+             "kpi_name": ["ENDC_SSR"] * 3,
+             "value": [99.0, None, 120.0],
+             "unit": ["%"] * 3,
+diff --git a/tests/unit/noise_filter/test_restart_filter.py b/tests/unit/noise_filter/test_restart_filter.py
+index 7759418..e924ff8 100644
+--- a/tests/unit/noise_filter/test_restart_filter.py
++++ b/tests/unit/noise_filter/test_restart_filter.py
+@@ -4,7 +4,7 @@ from rkaa.domain.noise_filter.models import RestartConfig
+ from rkaa.domain.noise_filter.restart_filter import RestartFilter
+ 
+ 
+-def _counter_rows(metric_name: str) -> list[dict[str, object]]:
++def _counter_rows(metric_name: str, *, cell_id: str = "CELL_A") -> list[dict[str, object]]:
+     times = [
+         "2026-07-01 00:00:00",
+         "2026-07-01 00:15:00",
+@@ -17,6 +17,7 @@ def _counter_rows(metric_name: str) -> list[dict[str, object]]:
+         {
+             "timestamp": timestamp,
+             "ne_id": "NE_A",
++            "cell_id": cell_id,
+             "kpi_name": metric_name,
+             "value": value,
+         }
+diff --git a/tests/unit/noise_filter/test_statistical_outlier_filter.py b/tests/unit/noise_filter/test_statistical_outlier_filter.py
+index 2aa9e6e..9c36510 100644
+--- a/tests/unit/noise_filter/test_statistical_outlier_filter.py
++++ b/tests/unit/noise_filter/test_statistical_outlier_filter.py
+@@ -4,35 +4,34 @@ from rkaa.domain.noise_filter.models import IQRConfig, StatisticalOutlierConfig,
+ from rkaa.domain.noise_filter.statistical_outlier_filter import StatisticalOutlierFilter
+ 
+ 
+-def test_iqr_excludes_outlier_when_group_has_enough_samples() -> None:
+-    values = [float(value) for value in range(1, 25)] + [100.0]
+-    df = pd.DataFrame(
++def _series_df(values: list[float], *, cell_id: str = "CELL_A") -> pd.DataFrame:
++    return pd.DataFrame(
+         {
+             "ne_id": ["NE_A"] * len(values),
++            "cell_id": [cell_id] * len(values),
+             "kpi_name": ["TRAFFIC"] * len(values),
+             "value": values,
+         }
+     )
++
++
++def test_iqr_excludes_outlier_when_cell_group_has_enough_samples() -> None:
++    values = [float(value) for value in range(1, 25)] + [100.0]
+     config = StatisticalOutlierConfig(
+         enabled=True,
+         iqr=IQRConfig(enabled=True, multiplier=1.5, min_samples=24),
+         z_score=ZScoreConfig(enabled=False),
+     )
+ 
+-    result = StatisticalOutlierFilter(config).apply(df)
++    result = StatisticalOutlierFilter(config).apply(_series_df(values))
+ 
+     assert result.excluded_df["value"].tolist() == [100.0]
+     assert result.excluded_df.iloc[0]["filter_reason"] == "IQR_OUTLIER"
+ 
+ 
+ def test_iqr_keeps_group_when_samples_are_insufficient() -> None:
+-    df = pd.DataFrame(
+-        {
+-            "ne_id": ["NE_A"] * 5,
+-            "kpi_name": ["ENDC_SSR"] * 5,
+-            "value": [99.0, 99.1, 99.2, 99.3, 10.0],
+-        }
+-    )
++    df = _series_df([99.0, 99.1, 99.2, 99.3, 10.0])
++    df["kpi_name"] = "ENDC_SSR"
+     config = StatisticalOutlierConfig(
+         iqr=IQRConfig(enabled=True, min_samples=24),
+         z_score=ZScoreConfig(enabled=False),
+@@ -47,13 +46,8 @@ def test_iqr_keeps_group_when_samples_are_insufficient() -> None:
+ 
+ def test_z_score_can_be_enabled_independently() -> None:
+     values = [0.0] * 20 + [10.0]
+-    df = pd.DataFrame(
+-        {
+-            "ne_id": ["NE_A"] * len(values),
+-            "kpi_name": ["COUNTER"] * len(values),
+-            "value": values,
+-        }
+-    )
++    df = _series_df(values)
++    df["kpi_name"] = "COUNTER"
+     config = StatisticalOutlierConfig(
+         iqr=IQRConfig(enabled=False),
+         z_score=ZScoreConfig(enabled=True, threshold=3.0, min_samples=10),
+@@ -63,3 +57,24 @@ def test_z_score_can_be_enabled_independently() -> None:
+ 
+     assert result.excluded_df["value"].tolist() == [10.0]
+     assert result.excluded_df.iloc[0]["filter_reason"] == "Z_SCORE_OUTLIER"
++
++
++def test_statistical_groups_do_not_mix_cells_of_same_ne() -> None:
++    # Mỗi cell chỉ có 3 mẫu, nên với min_samples=4 cả hai phải skip.
++    # Nếu code trộn cell thì 6 mẫu sẽ bị xử lý sai như một distribution chung.
++    df = pd.concat(
++        [
++            _series_df([1.0, 1.0, 100.0], cell_id="CELL_A"),
++            _series_df([50.0, 50.0, 50.0], cell_id="CELL_B"),
++        ],
++        ignore_index=True,
++    )
++    config = StatisticalOutlierConfig(
++        iqr=IQRConfig(enabled=True, min_samples=4),
++        z_score=ZScoreConfig(enabled=False),
++    )
++
++    result = StatisticalOutlierFilter(config).apply(df)
++
++    assert result.excluded_df.empty
++    assert result.summary["iqr_groups_skipped_insufficient"] == 2
+diff --git a/tests/unit/test_minio_collection_service_station_filter.py b/tests/unit/test_minio_collection_service_station_filter.py
+index 11371a7..67837e7 100644
+--- a/tests/unit/test_minio_collection_service_station_filter.py
++++ b/tests/unit/test_minio_collection_service_station_filter.py
+@@ -9,12 +9,15 @@ from rkaa.domain.data_collector.minio_kpi_normalizer import MinioKPINormalizer
+ class FakeAdapter:
+     def __init__(self) -> None:
+         self.received_station_ids: list[str] | None = None
++        self.received_ne_col: str | None = None
+ 
+     def fetch_kpi_wide_dataframe_for_stations(self, **kwargs: object) -> pd.DataFrame:
+         self.received_station_ids = kwargs["station_ids"]  # type: ignore[assignment]
++        self.received_ne_col = kwargs["ne_col"]  # type: ignore[assignment]
+         return pd.DataFrame(
+             {
+                 "datetime": [pd.Timestamp("2026-07-01 00:00:00")],
++                "ne": ["gHM00001"],
+                 "cellname": ["gHM00001_30n411"],
+                 "ENDC SSR VTNET (%)": [99.0],
+                 "ENDC CDR VTNET (%)": [1.0],
+@@ -27,7 +30,7 @@ class FakeAdapter:
+         )
+ 
+ 
+-def test_collect_for_stations_passes_normalized_list_to_adapter() -> None:
++def test_collect_for_stations_passes_ne_filter_and_preserves_cell() -> None:
+     adapter = FakeAdapter()
+     service = MinioCollectionService(
+         adapter=adapter,  # type: ignore[arg-type]
+@@ -41,5 +44,7 @@ def test_collect_for_stations_passes_normalized_list_to_adapter() -> None:
+     )
+ 
+     assert adapter.received_station_ids == ["gHM00001"]
+-    assert result.shape == (7, 7)
+-    assert set(result["ne_id"]) == {"gHM00001_30n411"}
++    assert adapter.received_ne_col == "ne"
++    assert result.shape == (7, 8)
++    assert set(result["ne_id"]) == {"gHM00001"}
++    assert set(result["cell_id"]) == {"gHM00001_30n411"}
+diff --git a/tests/unit/test_minio_kpi_normalizer.py b/tests/unit/test_minio_kpi_normalizer.py
+index f4008ca..1465fef 100644
+--- a/tests/unit/test_minio_kpi_normalizer.py
++++ b/tests/unit/test_minio_kpi_normalizer.py
+@@ -3,9 +3,10 @@ import pandas as pd
+ from rkaa.domain.data_collector.minio_kpi_normalizer import MinioKPINormalizer
+ 
+ 
+-def test_normalizer_uses_cellname_as_ne_id_in_old_minio_flow() -> None:
++def test_normalizer_keeps_ne_and_cell_as_separate_identifiers() -> None:
+     wide_df = pd.DataFrame({
+         "datetime": [pd.Timestamp("2026-07-01 00:00:00")],
++        "ne": ["gHM00001"],
+         "cellname": ["gHM00001_30"],
+         "ENDC SSR VTNET (%)": [99.82],
+         "ENDC CDR VTNET (%)": [2.95],
+@@ -18,14 +19,15 @@ def test_normalizer_uses_cellname_as_ne_id_in_old_minio_flow() -> None:
+ 
+     result = MinioKPINormalizer().normalize(wide_df)
+ 
+-    assert result.shape == (7, 7)
+-    assert set(result["ne_id"]) == {"gHM00001_30"}
+-    assert "cell_id" not in result.columns
++    assert result.shape == (7, 8)
++    assert set(result["ne_id"]) == {"gHM00001"}
++    assert set(result["cell_id"]) == {"gHM00001_30"}
+ 
+ 
+ def test_normalizer_preserves_null_record_for_fr201() -> None:
+     wide_df = pd.DataFrame({
+         "datetime": [pd.Timestamp("2026-07-01 00:00:00")],
++        "ne": ["gHM00001"],
+         "cellname": ["CELL_A"],
+         "ENDC SSR VTNET (%)": [None],
+     })
+@@ -33,5 +35,7 @@ def test_normalizer_preserves_null_record_for_fr201() -> None:
+     result = MinioKPINormalizer().normalize(wide_df)
+ 
+     row = result[result["kpi_name"] == "ENDC_SSR"].iloc[0]
++    assert row["ne_id"] == "gHM00001"
++    assert row["cell_id"] == "CELL_A"
+     assert pd.isna(row["value"])
+     assert row["quality_flag"] == "MISSING"
+diff --git a/tests/unit/test_minio_query_builder.py b/tests/unit/test_minio_query_builder.py
+index 06a712d..aac518c 100644
+--- a/tests/unit/test_minio_query_builder.py
++++ b/tests/unit/test_minio_query_builder.py
+@@ -18,8 +18,9 @@ def test_quote_identifier_rejects_tuple() -> None:
+ def test_build_query_contains_cell_filter() -> None:
+     query = build_minio_kpi_query(
+         bucket="bucket",
+-        selected_columns=["datetime", "cellname", "ENDC SSR VTNET (%)"],
++        selected_columns=["datetime", "ne", "cellname", "ENDC SSR VTNET (%)"],
+         datetime_col="datetime",
++        ne_col="ne",
+         cellname_col="cellname",
+         start_time="2026-07-01 00:00:00",
+         end_time="2026-07-02 00:00:00",
+@@ -31,25 +32,25 @@ def test_build_query_contains_cell_filter() -> None:
+     assert "LIMIT 100" in query.sql
+ 
+ 
+-def test_build_query_filters_multiple_stations_by_cellname_prefix() -> None:
++def test_build_query_filters_multiple_stations_by_ne_column() -> None:
+     query = build_minio_kpi_query(
+         bucket="bucket",
+-        selected_columns=["datetime", "cellname", "ENDC SSR VTNET (%)"],
++        selected_columns=["datetime", "ne", "cellname", "ENDC SSR VTNET (%)"],
+         datetime_col="datetime",
++        ne_col="ne",
+         cellname_col="cellname",
+         start_time="2026-07-01 00:00:00",
+         end_time="2026-07-02 00:00:00",
+         station_ids=["gHM00001", "gHM00072"],
+     )
+ 
+-    assert query.sql.count('starts_with("cellname", ?)') == 2
++    assert query.sql.count('"ne" = ?') == 2
++    assert 'starts_with("cellname"' not in query.sql
+     assert query.params == [
+         "2026-07-01 00:00:00",
+         "2026-07-02 00:00:00",
+         "gHM00001",
+-        "gHM00001_",
+         "gHM00072",
+-        "gHM00072_",
+     ]
+ 
+ 
+@@ -57,8 +58,9 @@ def test_build_query_rejects_cell_and_station_list_together() -> None:
+     with pytest.raises(ValueError):
+         build_minio_kpi_query(
+             bucket="bucket",
+-            selected_columns=["datetime", "cellname"],
++            selected_columns=["datetime", "ne", "cellname"],
+             datetime_col="datetime",
++            ne_col="ne",
+             cellname_col="cellname",
+             start_time="2026-07-01 00:00:00",
+             end_time="2026-07-02 00:00:00",

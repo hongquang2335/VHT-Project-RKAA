@@ -28,17 +28,19 @@ class MinioKPIAdapter:
         *,
         selected_columns: list[str],
         datetime_col: str,
+        ne_col: str,
         cellname_col: str,
         start_time: str,
         end_time: str,
         cellname: str | None = None,
         limit: int | None = None,
     ) -> pd.DataFrame:
-        """Luồng cũ: đọc toàn bộ theo thời gian hoặc lọc chính xác một cell."""
+        """Đọc theo thời gian hoặc lọc chính xác một cell; chỉ dùng SELECT."""
         query = build_minio_kpi_query(
             bucket=self.bucket,
             selected_columns=selected_columns,
             datetime_col=datetime_col,
+            ne_col=ne_col,
             cellname_col=cellname_col,
             start_time=start_time,
             end_time=end_time,
@@ -54,12 +56,13 @@ class MinioKPIAdapter:
         station_ids: list[str],
         selected_columns: list[str],
         datetime_col: str,
+        ne_col: str,
         cellname_col: str,
         start_time: str,
         end_time: str,
         limit: int | None = None,
     ) -> pd.DataFrame:
-        """Đọc KPI chỉ cho danh sách trạm mong muốn.
+        """Đọc KPI chỉ cho danh sách NE/trạm mong muốn theo cột ``ne``.
 
         Phương thức chỉ sinh SELECT trên Parquet MinIO, không ghi/sửa/xóa dữ liệu nguồn.
         """
@@ -71,6 +74,7 @@ class MinioKPIAdapter:
             bucket=self.bucket,
             selected_columns=selected_columns,
             datetime_col=datetime_col,
+            ne_col=ne_col,
             cellname_col=cellname_col,
             start_time=start_time,
             end_time=end_time,

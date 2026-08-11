@@ -1,7 +1,7 @@
 """Bước 4 FR-201: phát hiện outlier bằng IQR và/hoặc Z-score.
 
 File này chỉ xử lý *statistical outlier* trên dữ liệu KPI dạng long-format.
-Mỗi nhóm dữ liệu được xét độc lập theo cặp ``ne_id + kpi_name`` để tránh
+Mỗi nhóm dữ liệu được xét độc lập theo cặp ``ne_id + cell_id + kpi_name`` để tránh
 trộn các trạm hoặc KPI có phân phối/thang đo khác nhau.
 
 Hai phương pháp được hỗ trợ:
@@ -25,7 +25,7 @@ from rkaa.domain.noise_filter.utils import require_columns, split_by_mask
 
 
 class StatisticalOutlierFilter:
-    """Phát hiện outlier thống kê theo từng ``ne_id + kpi_name``.
+    """Phát hiện outlier thống kê theo từng ``ne_id + cell_id + kpi_name``.
 
     ``config`` quyết định:
     - IQR có bật hay không, multiplier và số mẫu tối thiểu.
@@ -41,16 +41,17 @@ class StatisticalOutlierFilter:
 
         Yêu cầu đầu vào có tối thiểu 3 cột:
         - ``ne_id``: định danh NE/trạm.
+        - ``cell_id``: định danh cell trong NE.
         - ``kpi_name``: tên KPI.
         - ``value``: giá trị KPI cần kiểm tra.
 
-        Mỗi nhóm ``ne_id + kpi_name`` được tính IQR/Z-score riêng.
+        Mỗi nhóm ``ne_id + cell_id + kpi_name`` được tính IQR/Z-score riêng.
         Nếu số mẫu của một nhóm nhỏ hơn ``min_samples`` thì phương pháp tương ứng
         tự động SKIP cho riêng nhóm đó; dữ liệu của nhóm vẫn được giữ lại.
         """
 
         # Đảm bảo input có đủ cột bắt buộc trước khi tính toán.
-        require_columns(df, ("ne_id", "kpi_name", "value"))
+        require_columns(df, ("ne_id", "cell_id", "kpi_name", "value"))
 
         # Nếu cả IQR và Z-score đều tắt thì không làm gì với dữ liệu.
         # Trả lại bản copy của df và một excluded_df rỗng để giữ cùng interface.
@@ -79,7 +80,7 @@ class StatisticalOutlierFilter:
         z_detail = pd.Series("", index=df.index, dtype="object")
 
         # summary dùng để log/đánh giá trạng thái của từng phương pháp.
-        # "group" ở đây nghĩa là một cặp ne_id + kpi_name.
+        # "group" ở đây nghĩa là một chuỗi thời gian ne_id + cell_id + kpi_name.
         summary = {
             "status": "ENABLED",
             "iqr_groups_processed": 0,
@@ -90,12 +91,14 @@ class StatisticalOutlierFilter:
             "z_groups_skipped_zero_std": 0,
         }
 
-        # Tạo cột tạm _value chứa dữ liệu numeric rồi group theo NE và KPI.
-        # Ví dụ gHM00001 + ENDC_SSR được tính riêng với
-        # gHM00001 + NSA_PS_TRAFFIC hay gHM00002 + ENDC_SSR.
-        grouped = df.assign(_value=numeric).groupby(["ne_id", "kpi_name"], sort=False)
+        # Tạo cột tạm _value rồi group theo đúng chuỗi thời gian NE + Cell + KPI.
+        # Hai cell khác nhau của cùng NE không được trộn chung baseline thống kê.
+        grouped = df.assign(_value=numeric).groupby(
+            ["ne_id", "cell_id", "kpi_name"],
+            sort=False,
+        )
 
-        for (_, _), group in grouped:
+        for (_, _, _), group in grouped:
             # Bỏ NaN trước khi tính thống kê.
             values = group["_value"].dropna()
             sample_count = len(values)

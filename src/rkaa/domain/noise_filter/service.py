@@ -26,7 +26,10 @@ class NoiseFilterService:
         self.exclusion_windows = list(exclusion_windows or [])
 
     def filter(self, df: pd.DataFrame) -> CleanResult:
-        require_columns(df, ("timestamp", "ne_id", "kpi_name", "value"))
+        require_columns(
+            df,
+            ("timestamp", "period_end", "ne_id", "cell_id", "kpi_name", "value"),
+        )
 
         current = df.copy()
         excluded_parts: list[pd.DataFrame] = []

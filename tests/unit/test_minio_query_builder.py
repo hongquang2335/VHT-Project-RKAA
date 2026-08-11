@@ -18,8 +18,9 @@ def test_quote_identifier_rejects_tuple() -> None:
 def test_build_query_contains_cell_filter() -> None:
     query = build_minio_kpi_query(
         bucket="bucket",
-        selected_columns=["datetime", "cellname", "ENDC SSR VTNET (%)"],
+        selected_columns=["datetime", "ne", "cellname", "ENDC SSR VTNET (%)"],
         datetime_col="datetime",
+        ne_col="ne",
         cellname_col="cellname",
         start_time="2026-07-01 00:00:00",
         end_time="2026-07-02 00:00:00",
@@ -31,25 +32,25 @@ def test_build_query_contains_cell_filter() -> None:
     assert "LIMIT 100" in query.sql
 
 
-def test_build_query_filters_multiple_stations_by_cellname_prefix() -> None:
+def test_build_query_filters_multiple_stations_by_ne_column() -> None:
     query = build_minio_kpi_query(
         bucket="bucket",
-        selected_columns=["datetime", "cellname", "ENDC SSR VTNET (%)"],
+        selected_columns=["datetime", "ne", "cellname", "ENDC SSR VTNET (%)"],
         datetime_col="datetime",
+        ne_col="ne",
         cellname_col="cellname",
         start_time="2026-07-01 00:00:00",
         end_time="2026-07-02 00:00:00",
         station_ids=["gHM00001", "gHM00072"],
     )
 
-    assert query.sql.count('starts_with("cellname", ?)') == 2
+    assert query.sql.count('"ne" = ?') == 2
+    assert 'starts_with("cellname"' not in query.sql
     assert query.params == [
         "2026-07-01 00:00:00",
         "2026-07-02 00:00:00",
         "gHM00001",
-        "gHM00001_",
         "gHM00072",
-        "gHM00072_",
     ]
 
 
@@ -57,8 +58,9 @@ def test_build_query_rejects_cell_and_station_list_together() -> None:
     with pytest.raises(ValueError):
         build_minio_kpi_query(
             bucket="bucket",
-            selected_columns=["datetime", "cellname"],
+            selected_columns=["datetime", "ne", "cellname"],
             datetime_col="datetime",
+            ne_col="ne",
             cellname_col="cellname",
             start_time="2026-07-01 00:00:00",
             end_time="2026-07-02 00:00:00",

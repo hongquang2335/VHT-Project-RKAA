@@ -1,4 +1,4 @@
-"""Phát hiện khoảng trống dữ liệu theo từng NE + KPI."""
+"""Phát hiện khoảng trống dữ liệu theo từng NE + Cell + KPI."""
 
 from __future__ import annotations
 
@@ -19,7 +19,10 @@ class GapDetector:
         warning = pd.Timedelta(minutes=self.config.warning_threshold_minutes)
         issues: list[DataQualityIssue] = []
 
-        for (_, _), group in df.groupby(["ne_id", "kpi_name"], sort=False):
+        for (_, _, _), group in df.groupby(
+            ["ne_id", "cell_id", "kpi_name"],
+            sort=False,
+        ):
             valid = group[group["timestamp"].notna()].sort_values("timestamp")
             if len(valid) < 2:
                 continue
@@ -38,8 +41,10 @@ class GapDetector:
                         severity=severity,
                         row_index=int(row["_dq_row_id"]),
                         ne_id=str(row["ne_id"]),
+                        cell_id=str(row["cell_id"]),
                         kpi_name=str(row["kpi_name"]),
                         timestamp=row["timestamp"],
+                        period_end=row["period_end"],
                         value=row["value"],
                         detail=(
                             f"previous={previous_ts}; current={row['timestamp']}; "

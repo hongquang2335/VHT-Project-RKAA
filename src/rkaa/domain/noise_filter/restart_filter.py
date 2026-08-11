@@ -28,11 +28,13 @@ from rkaa.domain.noise_filter.utils import parse_timestamp_series, require_colum
 class CounterResetEvidence:
     """Bằng chứng cho một lần reset của MỘT counter trên một NE.
 
+    Mỗi evidence thuộc đúng một chuỗi ``ne_id + cell_id + metric_name``.
     ``previous_value`` là giá trị trước reset, ``current_value`` là giá trị sau khi
     giảm mạnh, còn ``drop_ratio`` là tỷ lệ giảm so với giá trị trước đó.
     """
 
     ne_id: str
+    cell_id: str
     metric_name: str
     timestamp: pd.Timestamp
     previous_value: float
@@ -85,7 +87,7 @@ class RestartFilter:
         return non_decreasing and recovered
 
     def detect_counter_resets(self, df: pd.DataFrame) -> list[CounterResetEvidence]:
-        """Tìm reset candidate cho từng ``ne_id + kpi_name``.
+        """Tìm reset candidate cho từng ``ne_id + cell_id + kpi_name``.
 
         Một điểm chỉ được coi là reset khi đồng thời thỏa:
         - metric nằm trong ``eligible_metrics``;
@@ -107,12 +109,15 @@ class RestartFilter:
         # Chuẩn hóa timestamp và value để so sánh theo thời gian và tính tỷ lệ giảm.
         work["_timestamp"] = parse_timestamp_series(work["timestamp"])
         work["_value"] = pd.to_numeric(work["value"], errors="coerce")
-        work = work.sort_values(["ne_id", "kpi_name", "_timestamp"])
+        work = work.sort_values(["ne_id", "cell_id", "kpi_name", "_timestamp"])
 
         evidence: list[CounterResetEvidence] = []
 
-        # Mỗi counter của mỗi NE phải được xét độc lập.
-        for (ne_id, metric_name), group in work.groupby(["ne_id", "kpi_name"], sort=False):
+        # Mỗi counter của mỗi cell trong NE phải được xét độc lập.
+        for (ne_id, cell_id, metric_name), group in work.groupby(
+            ["ne_id", "cell_id", "kpi_name"],
+            sort=False,
+        ):
             timestamps = group["_timestamp"].tolist()
             values = group["_value"].tolist()
 
@@ -149,6 +154,7 @@ class RestartFilter:
                 evidence.append(
                     CounterResetEvidence(
                         ne_id=str(ne_id),
+                        cell_id=str(cell_id),
                         metric_name=str(metric_name),
                         timestamp=timestamps[index],
                         previous_value=previous,
@@ -222,7 +228,7 @@ class RestartFilter:
         kèm ``filter_stage``, ``filter_reason`` và ``detail`` để audit.
         """
 
-        require_columns(df, ("timestamp", "ne_id", "kpi_name", "value"))
+        require_columns(df, ("timestamp", "ne_id", "cell_id", "kpi_name", "value"))
 
         # Không có cumulative counter được cấu hình -> tự bỏ qua filter.
         if not self.config.eligible_metrics:
