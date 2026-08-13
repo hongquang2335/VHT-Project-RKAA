@@ -8,6 +8,13 @@ from enum import StrEnum
 import pandas as pd
 
 
+class DayType(StrEnum):
+    """Loại ngày theo FR-402."""
+
+    WEEKDAY = "WEEKDAY"
+    WEEKEND = "WEEKEND"
+
+
 class TemporalProfile(StrEnum):
     """Ba profile thời gian bắt buộc theo FR-401."""
 
@@ -43,5 +50,13 @@ class TemporalProfileConfig:
 
 @dataclass(slots=True)
 class TemporalAnalysisResult:
+    profiled_df: pd.DataFrame
+    overlay_df: pd.DataFrame
+
+
+@dataclass(slots=True)
+class WeeklyCycleAnalysisResult:
+    """Kết quả FR-402: dữ liệu đã phân loại ngày và overlay weekday/weekend."""
+
     profiled_df: pd.DataFrame
     overlay_df: pd.DataFrame
