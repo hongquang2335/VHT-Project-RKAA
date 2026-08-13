@@ -25,7 +25,7 @@ def _resolve_path(value: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="FR-402: separate WEEKDAY/WEEKEND KPI profiles and baselines",
+        description="FR-402: tách profile và baseline KPI theo WEEKDAY/WEEKEND",
     )
     parser.add_argument("--input", default="tmp/fr401/profiled_kpi.csv")
     parser.add_argument("--profiled-output", default="tmp/fr402/profiled_kpi.csv")
@@ -46,8 +46,8 @@ def main() -> None:
         type=int,
         default=2,
         help=(
-            "Minimum distinct dates required before emitting a Monday..Sunday baseline. "
-            "SRS does not define this threshold; default=2."
+            "Số ngày lịch khác nhau tối thiểu để tạo baseline riêng cho từng thứ. "
+            "SRS không quy định ngưỡng này; mặc định=2."
         ),
     )
     parser.add_argument("--chart-output")
@@ -59,15 +59,15 @@ def main() -> None:
     input_path = _resolve_path(args.input)
     if not input_path.exists():
         parser.error(
-            f"FR-402 input not found: {input_path}. Run FR-401 first."
+            f"Không tìm thấy input FR-402: {input_path}. Hãy chạy FR-401 trước."
         )
     if args.min_weekday_dates < 1:
-        parser.error("--min-weekday-dates must be >= 1")
+        parser.error("--min-weekday-dates phải >= 1")
 
     chart_values = [args.chart_output, args.chart_ne, args.chart_cell, args.chart_kpi]
     if any(chart_values) and not all(chart_values):
         parser.error(
-            "To create a chart, provide --chart-output --chart-ne --chart-cell --chart-kpi"
+            "Để tạo biểu đồ, cần truyền đủ --chart-output --chart-ne --chart-cell --chart-kpi"
         )
 
     df = pd.read_csv(input_path)
@@ -97,16 +97,16 @@ def main() -> None:
     result.overlay_df.to_csv(overlay_path, index=False, encoding="utf-8-sig")
 
     counts = result.profiled_df["day_type"].value_counts().to_dict()
-    print("FR-402 Weekly Cycle Summary")
-    print(f"Input records:         {len(df)}")
-    print(f"WEEKDAY records:       {counts.get('WEEKDAY', 0)}")
-    print(f"WEEKEND records:       {counts.get('WEEKEND', 0)}")
-    print(f"Day-type baseline rows:{len(day_type_baseline)}")
-    print(f"Weekday baseline rows: {len(weekday_baseline)}")
-    print("Profiled output:", profiled_path)
-    print("Day-type baseline:", day_type_baseline_path)
-    print("Weekday baseline:", weekday_baseline_path)
-    print("Overlay output:", overlay_path)
+    print("Tổng hợp chu kỳ tuần FR-402")
+    print(f"Số bản ghi đầu vào:    {len(df)}")
+    print(f"Bản ghi WEEKDAY:       {counts.get('WEEKDAY', 0)}")
+    print(f"Bản ghi WEEKEND:       {counts.get('WEEKEND', 0)}")
+    print(f"Số dòng baseline loại ngày: {len(day_type_baseline)}")
+    print(f"Số dòng baseline theo thứ: {len(weekday_baseline)}")
+    print("Output đã gán profile:", profiled_path)
+    print("Baseline theo loại ngày:", day_type_baseline_path)
+    print("Baseline theo từng thứ:", weekday_baseline_path)
+    print("Output overlay:", overlay_path)
 
     if all(chart_values):
         chart_path = write_weekly_profile_svg(
@@ -116,7 +116,7 @@ def main() -> None:
             kpi_name=args.chart_kpi,
             output_path=_resolve_path(args.chart_output),
         )
-        print("Chart output:", chart_path)
+        print("Output biểu đồ:", chart_path)
 
 
 if __name__ == "__main__":

@@ -9,10 +9,10 @@ from rkaa.domain.temporal_analyzer import WeeklyCycleAnalyzer
 def test_fr402_pipeline_separates_day_type_and_weekday_baselines() -> None:
     rows = []
     for date, day_type_value in (
-        ("2026-08-03", 98.0),  # Monday
-        ("2026-08-10", 100.0),  # Monday
-        ("2026-08-15", 90.0),  # Saturday
-        ("2026-08-16", 92.0),  # Sunday
+        ("2026-08-03", 98.0),  # Thứ Hai
+        ("2026-08-10", 100.0),  # Thứ Hai
+        ("2026-08-15", 90.0),  # Thứ Bảy
+        ("2026-08-16", 92.0),  # Chủ Nhật
     ):
         rows.append(
             {
