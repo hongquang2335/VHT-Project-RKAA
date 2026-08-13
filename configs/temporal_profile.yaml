@@ -1,0 +1,21 @@
+# FR-401 dùng timestamp nội bộ UTC. Có thể đổi timezone nếu muốn phân profile
+# theo giờ địa phương, ví dụ Asia/Ho_Chi_Minh.
+timezone: UTC
+
+# SRS nêu busy 07:00-22:00 và off-peak 22:00-07:00 nhưng đồng thời yêu cầu
+# profile TRANSITION mà không quy định độ dài. Bản triển khai mặc định tách 1 giờ
+# ở cuối mỗi vùng rộng làm transition: 06:00-07:00 và 21:00-22:00.
+profiles:
+  BUSY:
+    - start: "07:00"
+      end: "21:00"
+
+  TRANSITION:
+    - start: "06:00"
+      end: "07:00"
+    - start: "21:00"
+      end: "22:00"
+
+  OFF_PEAK:
+    - start: "22:00"
+      end: "06:00"

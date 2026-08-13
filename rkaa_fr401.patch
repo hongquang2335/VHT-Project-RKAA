@@ -1,0 +1,903 @@
+diff --git a/configs/temporal_profile.yaml b/configs/temporal_profile.yaml
+new file mode 100644
+index 0000000..1eb78fc
+--- /dev/null
++++ b/configs/temporal_profile.yaml
+@@ -0,0 +1,21 @@
++# FR-401 dùng timestamp nội bộ UTC. Có thể đổi timezone nếu muốn phân profile
++# theo giờ địa phương, ví dụ Asia/Ho_Chi_Minh.
++timezone: UTC
++
++# SRS nêu busy 07:00-22:00 và off-peak 22:00-07:00 nhưng đồng thời yêu cầu
++# profile TRANSITION mà không quy định độ dài. Bản triển khai mặc định tách 1 giờ
++# ở cuối mỗi vùng rộng làm transition: 06:00-07:00 và 21:00-22:00.
++profiles:
++  BUSY:
++    - start: "07:00"
++      end: "21:00"
++
++  TRANSITION:
++    - start: "06:00"
++      end: "07:00"
++    - start: "21:00"
++      end: "22:00"
++
++  OFF_PEAK:
++    - start: "22:00"
++      end: "06:00"
+diff --git a/scripts/run_temporal_analysis_once.py b/scripts/run_temporal_analysis_once.py
+new file mode 100644
+index 0000000..d61e0c2
+--- /dev/null
++++ b/scripts/run_temporal_analysis_once.py
+@@ -0,0 +1,94 @@
++from __future__ import annotations
++
++import argparse
++import sys
++from pathlib import Path
++
++import pandas as pd
++
++ROOT_DIR = Path(__file__).resolve().parents[1]
++SRC_DIR = ROOT_DIR / "src"
++if str(SRC_DIR) not in sys.path:
++    sys.path.insert(0, str(SRC_DIR))
++
++from rkaa.domain.baseline_engine import BaselineEngine  # noqa: E402
++from rkaa.domain.temporal_analyzer import TemporalAnalyzer  # noqa: E402
++from rkaa.infrastructure.config.temporal_profile_loader import (  # noqa: E402
++    load_temporal_profile_config,
++)
++from rkaa.infrastructure.visualization.temporal_profile_svg import (  # noqa: E402
++    write_temporal_profile_svg,
++)
++
++
++def _resolve_path(value: str) -> Path:
++    path = Path(value)
++    return path if path.is_absolute() else ROOT_DIR / path
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(
++        description="FR-401: phân tích profile ngày/đêm và baseline theo profile",
++    )
++    parser.add_argument("--input", default="tmp/fr201/cleaned_kpi.csv")
++    parser.add_argument("--config", default="configs/temporal_profile.yaml")
++    parser.add_argument("--profiled-output", default="tmp/fr401/profiled_kpi.csv")
++    parser.add_argument("--baseline-output", default="tmp/fr401/temporal_baseline.csv")
++    parser.add_argument("--overlay-output", default="tmp/fr401/profile_overlay.csv")
++    parser.add_argument("--chart-output")
++    parser.add_argument("--chart-ne")
++    parser.add_argument("--chart-cell")
++    parser.add_argument("--chart-kpi")
++    args = parser.parse_args()
++
++    input_path = _resolve_path(args.input)
++    config_path = _resolve_path(args.config)
++    if not input_path.exists():
++        parser.error(f"Không tìm thấy input FR-401: {input_path}")
++    if not config_path.exists():
++        parser.error(f"Không tìm thấy config FR-401: {config_path}")
++
++    chart_values = [args.chart_output, args.chart_ne, args.chart_cell, args.chart_kpi]
++    if any(chart_values) and not all(chart_values):
++        parser.error(
++            "Muốn sinh chart phải truyền đủ --chart-output --chart-ne --chart-cell --chart-kpi"
++        )
++
++    config = load_temporal_profile_config(config_path)
++    df = pd.read_csv(input_path)
++    result = TemporalAnalyzer(config).analyze(df)
++    baseline = BaselineEngine().compute(result.profiled_df)
++
++    profiled_path = _resolve_path(args.profiled_output)
++    baseline_path = _resolve_path(args.baseline_output)
++    overlay_path = _resolve_path(args.overlay_output)
++    for path in (profiled_path, baseline_path, overlay_path):
++        path.parent.mkdir(parents=True, exist_ok=True)
++
++    result.profiled_df.to_csv(profiled_path, index=False, encoding="utf-8-sig")
++    baseline.to_csv(baseline_path, index=False, encoding="utf-8-sig")
++    result.overlay_df.to_csv(overlay_path, index=False, encoding="utf-8-sig")
++
++    profiles = sorted(result.profiled_df["temporal_profile"].unique().tolist())
++    print("FR-401 Temporal Profile Summary")
++    print(f"Input records:    {len(df)}")
++    print(f"Profiled records: {len(result.profiled_df)}")
++    print(f"Profiles:         {', '.join(profiles)}")
++    print(f"Baseline rows:    {len(baseline)}")
++    print("Profiled output:", profiled_path)
++    print("Baseline output:", baseline_path)
++    print("Overlay output:", overlay_path)
++
++    if all(chart_values):
++        chart_path = write_temporal_profile_svg(
++            result.overlay_df,
++            ne_id=args.chart_ne,
++            cell_id=args.chart_cell,
++            kpi_name=args.chart_kpi,
++            output_path=_resolve_path(args.chart_output),
++        )
++        print("Chart output:", chart_path)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/rkaa/domain/baseline_engine/__init__.py b/src/rkaa/domain/baseline_engine/__init__.py
+new file mode 100644
+index 0000000..2ebe1ca
+--- /dev/null
++++ b/src/rkaa/domain/baseline_engine/__init__.py
+@@ -0,0 +1,5 @@
++"""Baseline engine dùng temporal profile của FR-401."""
++
++from rkaa.domain.baseline_engine.service import BaselineEngine
++
++__all__ = ["BaselineEngine"]
+diff --git a/src/rkaa/domain/baseline_engine/service.py b/src/rkaa/domain/baseline_engine/service.py
+new file mode 100644
+index 0000000..976748d
+--- /dev/null
++++ b/src/rkaa/domain/baseline_engine/service.py
+@@ -0,0 +1,83 @@
++"""Tính baseline tách biệt theo temporal profile FR-401."""
++
++from __future__ import annotations
++
++import pandas as pd
++
++_BASELINE_KEYS = ["ne_id", "cell_id", "kpi_name", "temporal_profile"]
++
++
++class BaselineEngine:
++    """Baseline chỉ được tính và ghép trong cùng temporal profile."""
++
++    def compute(self, profiled_df: pd.DataFrame) -> pd.DataFrame:
++        required = set(_BASELINE_KEYS + ["value"])
++        missing = sorted(required.difference(profiled_df.columns))
++        if missing:
++            raise ValueError(f"Thiếu cột để tính baseline: {', '.join(missing)}")
++
++        group_columns = list(_BASELINE_KEYS)
++        if "unit" in profiled_df.columns:
++            group_columns.append("unit")
++
++        grouped = profiled_df.groupby(group_columns, dropna=False, sort=True)["value"]
++        baseline = grouped.agg(
++            sample_count="count",
++            mean="mean",
++            median="median",
++            std="std",
++            p05=lambda values: values.quantile(0.05),
++            p95=lambda values: values.quantile(0.95),
++        )
++        return baseline.reset_index()
++
++    def attach_baseline(
++        self,
++        profiled_df: pd.DataFrame,
++        baseline_df: pd.DataFrame,
++    ) -> pd.DataFrame:
++        """Ghép baseline bằng key có temporal_profile để không so sánh chéo profile."""
++
++        missing_records = sorted(set(_BASELINE_KEYS).difference(profiled_df.columns))
++        missing_baseline = sorted(set(_BASELINE_KEYS).difference(baseline_df.columns))
++        if missing_records:
++            raise ValueError(f"Dữ liệu thiếu baseline key: {', '.join(missing_records)}")
++        if missing_baseline:
++            raise ValueError(f"Baseline thiếu key: {', '.join(missing_baseline)}")
++
++        stats = ["sample_count", "mean", "median", "std", "p05", "p95"]
++        available_stats = [column for column in stats if column in baseline_df.columns]
++        selected = baseline_df[_BASELINE_KEYS + available_stats].copy()
++        selected = selected.rename(
++            columns={column: f"baseline_{column}" for column in available_stats}
++        )
++        return profiled_df.merge(selected, how="left", on=_BASELINE_KEYS, validate="many_to_one")
++
++    def compare_same_profile_windows(
++        self,
++        pre_df: pd.DataFrame,
++        post_df: pd.DataFrame,
++    ) -> pd.DataFrame:
++        """So sánh pre/post chỉ khi NE + Cell + KPI + temporal profile giống nhau."""
++
++        required = set(_BASELINE_KEYS + ["value"])
++        for name, frame in (("pre", pre_df), ("post", post_df)):
++            missing = sorted(required.difference(frame.columns))
++            if missing:
++                raise ValueError(f"{name} thiếu cột: {', '.join(missing)}")
++
++        pre = (
++            pre_df.groupby(_BASELINE_KEYS, dropna=False)["value"]
++            .agg(pre_count="count", pre_mean="mean", pre_median="median")
++            .reset_index()
++        )
++        post = (
++            post_df.groupby(_BASELINE_KEYS, dropna=False)["value"]
++            .agg(post_count="count", post_mean="mean", post_median="median")
++            .reset_index()
++        )
++        result = pre.merge(post, how="inner", on=_BASELINE_KEYS, validate="one_to_one")
++        result["delta_mean"] = result["post_mean"] - result["pre_mean"]
++        denominator = result["pre_mean"].where(result["pre_mean"] != 0)
++        result["delta_percent"] = result["delta_mean"] / denominator * 100.0
++        return result
+diff --git a/src/rkaa/domain/temporal_analyzer/__init__.py b/src/rkaa/domain/temporal_analyzer/__init__.py
+new file mode 100644
+index 0000000..b76bef0
+--- /dev/null
++++ b/src/rkaa/domain/temporal_analyzer/__init__.py
+@@ -0,0 +1,17 @@
++"""FR-401 temporal profile analysis."""
++
++from rkaa.domain.temporal_analyzer.models import (
++    ProfileWindow,
++    TemporalAnalysisResult,
++    TemporalProfile,
++    TemporalProfileConfig,
++)
++from rkaa.domain.temporal_analyzer.service import TemporalAnalyzer
++
++__all__ = [
++    "ProfileWindow",
++    "TemporalAnalysisResult",
++    "TemporalAnalyzer",
++    "TemporalProfile",
++    "TemporalProfileConfig",
++]
+diff --git a/src/rkaa/domain/temporal_analyzer/models.py b/src/rkaa/domain/temporal_analyzer/models.py
+new file mode 100644
+index 0000000..9e9f8fc
+--- /dev/null
++++ b/src/rkaa/domain/temporal_analyzer/models.py
+@@ -0,0 +1,47 @@
++"""Mô hình domain cho FR-401."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from enum import StrEnum
++
++import pandas as pd
++
++
++class TemporalProfile(StrEnum):
++    """Ba profile thời gian bắt buộc theo FR-401."""
++
++    BUSY = "BUSY"
++    OFF_PEAK = "OFF_PEAK"
++    TRANSITION = "TRANSITION"
++
++
++@dataclass(frozen=True, slots=True)
++class ProfileWindow:
++    """Một cửa sổ thời gian trong ngày, biểu diễn theo phút [start, end)."""
++
++    profile: TemporalProfile
++    start_minute: int
++    end_minute: int
++
++    def contains(self, minute_of_day: int) -> bool:
++        """Kiểm tra phút trong ngày có thuộc cửa sổ hay không.
++
++        Cửa sổ qua nửa đêm được hỗ trợ, ví dụ 22:00→06:00.
++        """
++
++        if self.start_minute < self.end_minute:
++            return self.start_minute <= minute_of_day < self.end_minute
++        return minute_of_day >= self.start_minute or minute_of_day < self.end_minute
++
++
++@dataclass(frozen=True, slots=True)
++class TemporalProfileConfig:
++    timezone: str
++    windows: tuple[ProfileWindow, ...]
++
++
++@dataclass(slots=True)
++class TemporalAnalysisResult:
++    profiled_df: pd.DataFrame
++    overlay_df: pd.DataFrame
+diff --git a/src/rkaa/domain/temporal_analyzer/service.py b/src/rkaa/domain/temporal_analyzer/service.py
+new file mode 100644
+index 0000000..d685fdc
+--- /dev/null
++++ b/src/rkaa/domain/temporal_analyzer/service.py
+@@ -0,0 +1,108 @@
++"""Gán profile ngày/đêm và tạo dữ liệu profile cho FR-401."""
++
++from __future__ import annotations
++
++import pandas as pd
++
++from rkaa.domain.temporal_analyzer.models import (
++    TemporalAnalysisResult,
++    TemporalProfileConfig,
++)
++
++_REQUIRED_COLUMNS = {
++    "timestamp",
++    "period_end",
++    "ne_id",
++    "cell_id",
++    "kpi_name",
++    "value",
++}
++
++
++class TemporalAnalyzer:
++    """Phân loại từng data point theo BUSY/OFF_PEAK/TRANSITION."""
++
++    def __init__(self, config: TemporalProfileConfig) -> None:
++        self.config = config
++
++    def classify_period(self, minute_of_day: int) -> str:
++        matches = [
++            window.profile.value
++            for window in self.config.windows
++            if window.contains(minute_of_day)
++        ]
++        if len(matches) != 1:
++            raise ValueError(
++                "Cấu hình temporal profile phải khớp đúng 1 profile cho mỗi phút; "
++                f"minute_of_day={minute_of_day}, matches={matches}"
++            )
++        return matches[0]
++
++    def analyze(self, df: pd.DataFrame) -> TemporalAnalysisResult:
++        missing = sorted(_REQUIRED_COLUMNS.difference(df.columns))
++        if missing:
++            raise ValueError(f"Thiếu cột bắt buộc cho FR-401: {', '.join(missing)}")
++
++        working = df.copy()
++        timestamps = pd.to_datetime(
++            working["timestamp"],
++            errors="coerce",
++            utc=True,
++            format="mixed",
++        )
++        if timestamps.isna().any():
++            bad = int(timestamps.isna().sum())
++            raise ValueError(
++                f"FR-401 nhận {bad} timestamp không hợp lệ; hãy chạy FR-203 trước"
++            )
++
++        values = pd.to_numeric(working["value"], errors="coerce")
++        if values.isna().any():
++            bad = int(values.isna().sum())
++            raise ValueError(
++                f"FR-401 nhận {bad} value không phải số; hãy chạy FR-203/FR-201 trước"
++            )
++
++        working["timestamp"] = timestamps
++        working["value"] = values.astype(float)
++        local_timestamp = timestamps.dt.tz_convert(self.config.timezone)
++        minute_of_day = local_timestamp.dt.hour * 60 + local_timestamp.dt.minute
++
++        working["local_timestamp"] = local_timestamp
++        working["profile_timezone"] = self.config.timezone
++        working["minute_of_day"] = minute_of_day.astype(int)
++        working["time_of_day"] = local_timestamp.dt.strftime("%H:%M")
++        working["temporal_profile"] = working["minute_of_day"].map(
++            self.classify_period
++        )
++
++        overlay = self.get_profile(working)
++        return TemporalAnalysisResult(
++            profiled_df=working.reset_index(drop=True),
++            overlay_df=overlay,
++        )
++
++    @staticmethod
++    def get_profile(profiled_df: pd.DataFrame) -> pd.DataFrame:
++        """Tạo dữ liệu overlay profile theo cùng giờ trong ngày qua nhiều ngày."""
++
++        group_columns = [
++            "ne_id",
++            "cell_id",
++            "kpi_name",
++            "temporal_profile",
++            "minute_of_day",
++            "time_of_day",
++        ]
++        if "unit" in profiled_df.columns:
++            group_columns.append("unit")
++
++        grouped = profiled_df.groupby(group_columns, dropna=False, sort=True)["value"]
++        overlay = grouped.agg(
++            sample_count="count",
++            mean="mean",
++            median="median",
++            p05=lambda values: values.quantile(0.05),
++            p95=lambda values: values.quantile(0.95),
++        )
++        return overlay.reset_index()
+diff --git a/src/rkaa/infrastructure/config/temporal_profile_loader.py b/src/rkaa/infrastructure/config/temporal_profile_loader.py
+new file mode 100644
+index 0000000..f077803
+--- /dev/null
++++ b/src/rkaa/infrastructure/config/temporal_profile_loader.py
+@@ -0,0 +1,100 @@
++"""Đọc cấu hình temporal profile FR-401."""
++
++from __future__ import annotations
++
++from pathlib import Path
++from typing import Any
++from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
++
++import yaml
++
++from rkaa.domain.temporal_analyzer.models import (
++    ProfileWindow,
++    TemporalProfile,
++    TemporalProfileConfig,
++)
++
++
++def _parse_time(value: Any, field_name: str) -> int:
++    if not isinstance(value, str):
++        raise ValueError(f"{field_name} phải có dạng HH:MM")
++    parts = value.split(":")
++    if len(parts) != 2:
++        raise ValueError(f"{field_name} phải có dạng HH:MM")
++    try:
++        hour, minute = int(parts[0]), int(parts[1])
++    except ValueError as exc:
++        raise ValueError(f"{field_name} phải có dạng HH:MM") from exc
++    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
++        raise ValueError(f"{field_name} không hợp lệ: {value}")
++    return hour * 60 + minute
++
++
++def _validate_full_day_coverage(windows: tuple[ProfileWindow, ...]) -> None:
++    profiles = {window.profile for window in windows}
++    required = {
++        TemporalProfile.BUSY,
++        TemporalProfile.OFF_PEAK,
++        TemporalProfile.TRANSITION,
++    }
++    if profiles != required:
++        missing = sorted(profile.value for profile in required.difference(profiles))
++        extra = sorted(profile.value for profile in profiles.difference(required))
++        raise ValueError(
++            "FR-401 cần đúng 3 profile BUSY/OFF_PEAK/TRANSITION; "
++            f"missing={missing}, extra={extra}"
++        )
++
++    for minute in range(24 * 60):
++        matches = [window for window in windows if window.contains(minute)]
++        if len(matches) != 1:
++            hour, minute_part = divmod(minute, 60)
++            raise ValueError(
++                "Các cửa sổ FR-401 phải phủ đủ 24 giờ và không overlap; "
++                f"lỗi tại {hour:02d}:{minute_part:02d}, matches={len(matches)}"
++            )
++
++
++def load_temporal_profile_config(path: str | Path) -> TemporalProfileConfig:
++    config_path = Path(path)
++    with config_path.open("r", encoding="utf-8") as handle:
++        payload = yaml.safe_load(handle) or {}
++    if not isinstance(payload, dict):
++        raise ValueError("Root của temporal profile config phải là mapping")
++
++    timezone = payload.get("timezone", "UTC")
++    if not isinstance(timezone, str):
++        raise ValueError("timezone phải là chuỗi IANA timezone")
++    try:
++        ZoneInfo(timezone)
++    except ZoneInfoNotFoundError as exc:
++        raise ValueError(f"Timezone không hợp lệ: {timezone}") from exc
++
++    profiles_raw = payload.get("profiles")
++    if not isinstance(profiles_raw, dict):
++        raise ValueError("profiles phải là mapping")
++
++    windows: list[ProfileWindow] = []
++    for profile_name, profile_windows in profiles_raw.items():
++        try:
++            profile = TemporalProfile(str(profile_name).upper())
++        except ValueError as exc:
++            raise ValueError(f"Temporal profile không hợp lệ: {profile_name}") from exc
++        if not isinstance(profile_windows, list) or not profile_windows:
++            raise ValueError(f"profiles.{profile_name} phải là list không rỗng")
++        for index, item in enumerate(profile_windows):
++            if not isinstance(item, dict):
++                raise ValueError(f"profiles.{profile_name}[{index}] phải là mapping")
++            start = _parse_time(item.get("start"), f"{profile_name}[{index}].start")
++            end = _parse_time(item.get("end"), f"{profile_name}[{index}].end")
++            if start == end:
++                raise ValueError(
++                    f"{profile_name}[{index}] start và end không được giống nhau"
++                )
++            windows.append(
++                ProfileWindow(profile=profile, start_minute=start, end_minute=end)
++            )
++
++    result = tuple(windows)
++    _validate_full_day_coverage(result)
++    return TemporalProfileConfig(timezone=timezone, windows=result)
+diff --git a/src/rkaa/infrastructure/visualization/__init__.py b/src/rkaa/infrastructure/visualization/__init__.py
+new file mode 100644
+index 0000000..a20ad1c
+--- /dev/null
++++ b/src/rkaa/infrastructure/visualization/__init__.py
+@@ -0,0 +1 @@
++"""Visualization adapters."""
+diff --git a/src/rkaa/infrastructure/visualization/temporal_profile_svg.py b/src/rkaa/infrastructure/visualization/temporal_profile_svg.py
+new file mode 100644
+index 0000000..3ce4ed5
+--- /dev/null
++++ b/src/rkaa/infrastructure/visualization/temporal_profile_svg.py
+@@ -0,0 +1,122 @@
++"""SVG tối giản cho overlay profile FR-401, không cần dependency đồ họa ngoài."""
++
++from __future__ import annotations
++
++from html import escape
++from pathlib import Path
++
++import pandas as pd
++
++
++_PROFILE_STYLES = {
++    "BUSY": "#1f77b4",
++    "OFF_PEAK": "#2ca02c",
++    "TRANSITION": "#ff7f0e",
++}
++
++
++def write_temporal_profile_svg(
++    overlay_df: pd.DataFrame,
++    *,
++    ne_id: str,
++    cell_id: str,
++    kpi_name: str,
++    output_path: str | Path,
++) -> Path:
++    """Vẽ mean theo giờ trong ngày, phân biệt ba temporal profile."""
++
++    selected = overlay_df[
++        (overlay_df["ne_id"].astype(str) == str(ne_id))
++        & (overlay_df["cell_id"].astype(str) == str(cell_id))
++        & (overlay_df["kpi_name"].astype(str) == str(kpi_name))
++    ].copy()
++    if selected.empty:
++        raise ValueError("Không có dữ liệu overlay cho NE/Cell/KPI đã chọn")
++
++    selected["mean"] = pd.to_numeric(selected["mean"], errors="coerce")
++    selected = selected.dropna(subset=["mean", "minute_of_day"])
++    if selected.empty:
++        raise ValueError("Dữ liệu overlay không có giá trị numeric để vẽ")
++
++    width, height = 1200, 520
++    left, right, top, bottom = 80, 30, 45, 70
++    plot_width = width - left - right
++    plot_height = height - top - bottom
++    y_min = float(selected["mean"].min())
++    y_max = float(selected["mean"].max())
++    if y_min == y_max:
++        padding = max(abs(y_min) * 0.05, 1.0)
++        y_min -= padding
++        y_max += padding
++
++    def x_coord(minute: float) -> float:
++        return left + minute / 1439.0 * plot_width
++
++    def y_coord(value: float) -> float:
++        return top + (y_max - value) / (y_max - y_min) * plot_height
++
++    lines: list[str] = [
++        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
++        f'viewBox="0 0 {width} {height}">',
++        '<rect width="100%" height="100%" fill="white"/>',
++        f'<text x="{left}" y="25" font-family="Arial" font-size="18">'
++        f'{escape(ne_id)} / {escape(cell_id)} / {escape(kpi_name)}</text>',
++        f'<line x1="{left}" y1="{top + plot_height}" x2="{left + plot_width}" '
++        f'y2="{top + plot_height}" stroke="#333"/>',
++        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}" stroke="#333"/>',
++    ]
++
++    for hour in range(0, 25, 3):
++        minute = min(hour * 60, 1439)
++        x = x_coord(minute)
++        lines.append(
++            f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + plot_height}" '
++            'stroke="#e5e5e5"/>'
++        )
++        lines.append(
++            f'<text x="{x:.1f}" y="{top + plot_height + 25}" text-anchor="middle" '
++            f'font-family="Arial" font-size="12">{hour:02d}:00</text>'
++        )
++
++    for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
++        value = y_min + (y_max - y_min) * fraction
++        y = y_coord(value)
++        lines.append(
++            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_width}" y2="{y:.1f}" '
++            'stroke="#eeeeee"/>'
++        )
++        lines.append(
++            f'<text x="{left - 10}" y="{y + 4:.1f}" text-anchor="end" '
++            f'font-family="Arial" font-size="12">{value:.2f}</text>'
++        )
++
++    legend_x = left
++    for profile in ("BUSY", "TRANSITION", "OFF_PEAK"):
++        subset = selected[selected["temporal_profile"] == profile].sort_values(
++            "minute_of_day"
++        )
++        color = _PROFILE_STYLES[profile]
++        if not subset.empty:
++            points = " ".join(
++                f'{x_coord(float(row.minute_of_day)):.1f},{y_coord(float(row.mean)):.1f}'
++                for row in subset.itertuples(index=False)
++            )
++            lines.append(
++                f'<polyline points="{points}" fill="none" stroke="{color}" '
++                'stroke-width="2"/>'
++            )
++        lines.append(
++            f'<line x1="{legend_x}" y1="{height - 20}" x2="{legend_x + 25}" '
++            f'y2="{height - 20}" stroke="{color}" stroke-width="3"/>'
++        )
++        lines.append(
++            f'<text x="{legend_x + 32}" y="{height - 16}" font-family="Arial" '
++            f'font-size="12">{profile}</text>'
++        )
++        legend_x += 170
++
++    lines.append("</svg>")
++    path = Path(output_path)
++    path.parent.mkdir(parents=True, exist_ok=True)
++    path.write_text("\n".join(lines), encoding="utf-8")
++    return path
+diff --git a/tests/integration/test_temporal_profile_pipeline.py b/tests/integration/test_temporal_profile_pipeline.py
+new file mode 100644
+index 0000000..4a6a281
+--- /dev/null
++++ b/tests/integration/test_temporal_profile_pipeline.py
+@@ -0,0 +1,41 @@
++from __future__ import annotations
++
++import pandas as pd
++
++from rkaa.domain.baseline_engine import BaselineEngine
++from rkaa.domain.temporal_analyzer import TemporalAnalyzer
++from rkaa.infrastructure.config.temporal_profile_loader import load_temporal_profile_config
++
++
++def test_fr401_pipeline_produces_three_separate_profile_baselines() -> None:
++    rows = []
++    for day in (10, 11):
++        for hour, value in ((5, 90.0), (6, 95.0), (8, 99.0)):
++            rows.append(
++                {
++                    "timestamp": f"2026-08-{day:02d}T{hour:02d}:00:00+00:00",
++                    "period_end": f"2026-08-{day:02d}T{hour:02d}:15:00+00:00",
++                    "ne_id": "NE1",
++                    "cell_id": "CELL_A",
++                    "kpi_name": "ENDC_SSR",
++                    "value": value,
++                    "unit": "%",
++                }
++            )
++    df = pd.DataFrame(rows)
++
++    config = load_temporal_profile_config("configs/temporal_profile.yaml")
++    temporal = TemporalAnalyzer(config).analyze(df)
++    baseline = BaselineEngine().compute(temporal.profiled_df)
++
++    assert set(temporal.profiled_df["temporal_profile"]) == {
++        "BUSY",
++        "OFF_PEAK",
++        "TRANSITION",
++    }
++    assert len(baseline) == 3
++    assert baseline.groupby("temporal_profile")["sample_count"].sum().to_dict() == {
++        "BUSY": 2,
++        "OFF_PEAK": 2,
++        "TRANSITION": 2,
++    }
+diff --git a/tests/unit/baseline_engine/test_baseline_engine.py b/tests/unit/baseline_engine/test_baseline_engine.py
+new file mode 100644
+index 0000000..42730c6
+--- /dev/null
++++ b/tests/unit/baseline_engine/test_baseline_engine.py
+@@ -0,0 +1,72 @@
++from __future__ import annotations
++
++import pandas as pd
++
++from rkaa.domain.baseline_engine.service import BaselineEngine
++
++
++def _profiled() -> pd.DataFrame:
++    return pd.DataFrame(
++        {
++            "ne_id": ["NE1"] * 6,
++            "cell_id": ["CELL_A"] * 6,
++            "kpi_name": ["ENDC_SSR"] * 6,
++            "temporal_profile": [
++                "OFF_PEAK",
++                "OFF_PEAK",
++                "TRANSITION",
++                "TRANSITION",
++                "BUSY",
++                "BUSY",
++            ],
++            "value": [90.0, 92.0, 94.0, 96.0, 98.0, 100.0],
++            "unit": ["%"] * 6,
++        }
++    )
++
++
++def test_compute_creates_separate_baseline_for_three_profiles() -> None:
++    baseline = BaselineEngine().compute(_profiled())
++
++    assert len(baseline) == 3
++    assert set(baseline["temporal_profile"]) == {"BUSY", "OFF_PEAK", "TRANSITION"}
++    means = baseline.set_index("temporal_profile")["mean"].to_dict()
++    assert means["OFF_PEAK"] == 91.0
++    assert means["TRANSITION"] == 95.0
++    assert means["BUSY"] == 99.0
++
++
++def test_attach_baseline_never_matches_a_different_temporal_profile() -> None:
++    profiled = _profiled().iloc[[0, 4]].copy()
++    baseline = BaselineEngine().compute(_profiled())
++
++    attached = BaselineEngine().attach_baseline(profiled, baseline)
++
++    assert attached.loc[attached["temporal_profile"] == "OFF_PEAK", "baseline_mean"].item() == 91.0
++    assert attached.loc[attached["temporal_profile"] == "BUSY", "baseline_mean"].item() == 99.0
++
++
++def test_compare_pre_post_only_pairs_same_profile() -> None:
++    pre = pd.DataFrame(
++        {
++            "ne_id": ["NE1", "NE1"],
++            "cell_id": ["CELL_A", "CELL_A"],
++            "kpi_name": ["ENDC_SSR", "ENDC_SSR"],
++            "temporal_profile": ["BUSY", "OFF_PEAK"],
++            "value": [98.0, 90.0],
++        }
++    )
++    post = pd.DataFrame(
++        {
++            "ne_id": ["NE1", "NE1"],
++            "cell_id": ["CELL_A", "CELL_A"],
++            "kpi_name": ["ENDC_SSR", "ENDC_SSR"],
++            "temporal_profile": ["BUSY", "TRANSITION"],
++            "value": [99.0, 95.0],
++        }
++    )
++
++    compared = BaselineEngine().compare_same_profile_windows(pre, post)
++
++    assert compared["temporal_profile"].tolist() == ["BUSY"]
++    assert compared["delta_mean"].item() == 1.0
+diff --git a/tests/unit/temporal_analyzer/test_temporal_analyzer.py b/tests/unit/temporal_analyzer/test_temporal_analyzer.py
+new file mode 100644
+index 0000000..d95cc7e
+--- /dev/null
++++ b/tests/unit/temporal_analyzer/test_temporal_analyzer.py
+@@ -0,0 +1,71 @@
++from __future__ import annotations
++
++import pandas as pd
++
++from rkaa.domain.temporal_analyzer.models import (
++    ProfileWindow,
++    TemporalProfile,
++    TemporalProfileConfig,
++)
++from rkaa.domain.temporal_analyzer.service import TemporalAnalyzer
++
++
++def _config() -> TemporalProfileConfig:
++    return TemporalProfileConfig(
++        timezone="UTC",
++        windows=(
++            ProfileWindow(TemporalProfile.BUSY, 7 * 60, 21 * 60),
++            ProfileWindow(TemporalProfile.TRANSITION, 6 * 60, 7 * 60),
++            ProfileWindow(TemporalProfile.TRANSITION, 21 * 60, 22 * 60),
++            ProfileWindow(TemporalProfile.OFF_PEAK, 22 * 60, 6 * 60),
++        ),
++    )
++
++
++def test_classifies_busy_off_peak_and_transition_boundaries() -> None:
++    analyzer = TemporalAnalyzer(_config())
++
++    assert analyzer.classify_period(5 * 60 + 59) == "OFF_PEAK"
++    assert analyzer.classify_period(6 * 60) == "TRANSITION"
++    assert analyzer.classify_period(6 * 60 + 59) == "TRANSITION"
++    assert analyzer.classify_period(7 * 60) == "BUSY"
++    assert analyzer.classify_period(20 * 60 + 59) == "BUSY"
++    assert analyzer.classify_period(21 * 60) == "TRANSITION"
++    assert analyzer.classify_period(21 * 60 + 59) == "TRANSITION"
++    assert analyzer.classify_period(22 * 60) == "OFF_PEAK"
++
++
++def test_analyze_preserves_ne_cell_and_builds_overlay_profile() -> None:
++    df = pd.DataFrame(
++        {
++            "timestamp": [
++                "2026-08-10T05:00:00+00:00",
++                "2026-08-10T06:15:00+00:00",
++                "2026-08-10T08:00:00+00:00",
++            ],
++            "period_end": [
++                "2026-08-10T05:15:00+00:00",
++                "2026-08-10T06:30:00+00:00",
++                "2026-08-10T08:15:00+00:00",
++            ],
++            "ne_id": ["NE1"] * 3,
++            "cell_id": ["CELL_A"] * 3,
++            "kpi_name": ["ENDC_SSR"] * 3,
++            "value": [98.0, 97.0, 99.0],
++            "unit": ["%"] * 3,
++        }
++    )
++
++    result = TemporalAnalyzer(_config()).analyze(df)
++
++    assert result.profiled_df["temporal_profile"].tolist() == [
++        "OFF_PEAK",
++        "TRANSITION",
++        "BUSY",
++    ]
++    assert result.profiled_df["cell_id"].tolist() == ["CELL_A"] * 3
++    assert set(result.overlay_df["temporal_profile"]) == {
++        "BUSY",
++        "OFF_PEAK",
++        "TRANSITION",
++    }
+diff --git a/tests/unit/test_temporal_profile_loader.py b/tests/unit/test_temporal_profile_loader.py
+new file mode 100644
+index 0000000..3989a8a
+--- /dev/null
++++ b/tests/unit/test_temporal_profile_loader.py
+@@ -0,0 +1,37 @@
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from rkaa.infrastructure.config.temporal_profile_loader import load_temporal_profile_config
++
++
++def test_load_default_temporal_profile_config() -> None:
++    config = load_temporal_profile_config(Path("configs/temporal_profile.yaml"))
++
++    assert config.timezone == "UTC"
++    assert len(config.windows) == 4
++
++
++def test_loader_rejects_overlap_or_uncovered_minutes(tmp_path: Path) -> None:
++    path = tmp_path / "temporal.yaml"
++    path.write_text(
++        """
++timezone: UTC
++profiles:
++  BUSY:
++    - start: "07:00"
++      end: "22:00"
++  TRANSITION:
++    - start: "06:00"
++      end: "08:00"
++  OFF_PEAK:
++    - start: "22:00"
++      end: "06:00"
++""".strip(),
++        encoding="utf-8",
++    )
++
++    with pytest.raises(ValueError, match="không overlap"):
++        load_temporal_profile_config(path)
