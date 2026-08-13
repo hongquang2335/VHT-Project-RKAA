@@ -1,4 +1,4 @@
-"""FR-402 weekday/weekend classification and profile aggregation."""
+"""Phân loại WEEKDAY/WEEKEND và tổng hợp profile cho FR-402."""
 
 from __future__ import annotations
 
@@ -29,12 +29,12 @@ _DAY_NAMES = {
 
 
 class WeeklyCycleAnalyzer:
-    """Classify KPI records as WEEKDAY/WEEKEND using the FR-401 profile timezone."""
+    """Phân loại bản ghi KPI thành WEEKDAY/WEEKEND theo múi giờ profile FR-401."""
 
     @staticmethod
     def classify_day(weekday_index: int) -> str:
         if not 0 <= weekday_index <= 6:
-            raise ValueError(f"weekday_index must be in [0, 6], got {weekday_index}")
+            raise ValueError(f"weekday_index phải nằm trong [0, 6], nhận được {weekday_index}")
         return DayType.WEEKDAY.value if weekday_index <= 4 else DayType.WEEKEND.value
 
     @staticmethod
@@ -53,19 +53,19 @@ class WeeklyCycleAnalyzer:
             return "UTC"
         if len(unique) != 1:
             raise ValueError(
-                "FR-402 expects one profile_timezone in the input; "
-                f"got {sorted(unique)}"
+                "FR-402 yêu cầu input chỉ có một profile_timezone; "
+                f"nhận được {sorted(unique)}"
             )
         try:
             ZoneInfo(unique[0])
         except ZoneInfoNotFoundError as exc:
-            raise ValueError(f"Invalid profile_timezone: {unique[0]}") from exc
+            raise ValueError(f"profile_timezone không hợp lệ: {unique[0]}") from exc
         return unique[0]
 
     def analyze(self, df: pd.DataFrame) -> WeeklyCycleAnalysisResult:
         missing = sorted(_REQUIRED_COLUMNS.difference(df.columns))
         if missing:
-            raise ValueError(f"Missing required FR-402 columns: {', '.join(missing)}")
+            raise ValueError(f"Thiếu cột bắt buộc cho FR-402: {', '.join(missing)}")
 
         working = df.copy()
         timestamps = pd.to_datetime(
@@ -77,14 +77,14 @@ class WeeklyCycleAnalyzer:
         if timestamps.isna().any():
             bad = int(timestamps.isna().sum())
             raise ValueError(
-                f"FR-402 received {bad} invalid timestamp values; run FR-203 first"
+                f"FR-402 nhận {bad} timestamp không hợp lệ; hãy chạy FR-203 trước"
             )
 
         values = pd.to_numeric(working["value"], errors="coerce")
         if values.isna().any():
             bad = int(values.isna().sum())
             raise ValueError(
-                f"FR-402 received {bad} non-numeric values; run FR-203/FR-201 first"
+                f"FR-402 nhận {bad} value không phải số; hãy chạy FR-203/FR-201 trước"
             )
 
         timezone = self._resolve_timezone(working)
@@ -115,7 +115,7 @@ class WeeklyCycleAnalyzer:
 
     @staticmethod
     def get_day_type_profile(profiled_df: pd.DataFrame) -> pd.DataFrame:
-        """Aggregate the same time-of-day separately for WEEKDAY and WEEKEND."""
+        """Gộp cùng thời điểm trong ngày riêng cho WEEKDAY và WEEKEND."""
 
         required = {
             "ne_id",
@@ -129,7 +129,7 @@ class WeeklyCycleAnalyzer:
         }
         missing = sorted(required.difference(profiled_df.columns))
         if missing:
-            raise ValueError(f"Missing FR-402 overlay columns: {', '.join(missing)}")
+            raise ValueError(f"Thiếu cột để tạo overlay FR-402: {', '.join(missing)}")
 
         group_columns = [
             "ne_id",

@@ -32,9 +32,9 @@ def test_classify_day_maps_monday_friday_to_weekday_and_weekend() -> None:
 def test_analyze_labels_weekday_weekend_and_preserves_cell() -> None:
     df = pd.DataFrame(
         [
-            _row("2026-08-10T08:00:00+00:00"),  # Monday
-            _row("2026-08-15T08:00:00+00:00"),  # Saturday
-            _row("2026-08-16T08:00:00+00:00"),  # Sunday
+            _row("2026-08-10T08:00:00+00:00"),  # Thứ Hai
+            _row("2026-08-15T08:00:00+00:00"),  # Thứ Bảy
+            _row("2026-08-16T08:00:00+00:00"),  # Chủ Nhật
         ]
     )
 
@@ -54,8 +54,8 @@ def test_analyze_labels_weekday_weekend_and_preserves_cell() -> None:
 
 
 def test_day_type_uses_profile_timezone_not_raw_utc_calendar_day() -> None:
-    row = _row("2026-08-16T23:30:00+00:00")  # Sunday UTC
-    row["profile_timezone"] = "Asia/Ho_Chi_Minh"  # Monday local
+    row = _row("2026-08-16T23:30:00+00:00")  # Chủ Nhật theo UTC
+    row["profile_timezone"] = "Asia/Ho_Chi_Minh"  # Thứ Hai theo giờ cục bộ
     df = pd.DataFrame([row])
 
     result = WeeklyCycleAnalyzer().analyze(df)

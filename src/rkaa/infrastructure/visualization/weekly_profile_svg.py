@@ -1,4 +1,4 @@
-"""Simple SVG chart for FR-402 weekday/weekend profile comparison."""
+"""Biểu đồ SVG đơn giản để so sánh profile WEEKDAY/WEEKEND của FR-402."""
 
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ def write_weekly_profile_svg(
     kpi_name: str,
     output_path: str | Path,
 ) -> Path:
-    """Plot mean KPI by time-of-day with separate WEEKDAY/WEEKEND lines."""
+    """Vẽ mean KPI theo thời điểm trong ngày, tách đường WEEKDAY/WEEKEND."""
 
     required = {"ne_id", "cell_id", "kpi_name", "day_type", "minute_of_day", "mean"}
     missing = sorted(required.difference(overlay_df.columns))
     if missing:
-        raise ValueError(f"Missing FR-402 chart columns: {', '.join(missing)}")
+        raise ValueError(f"Thiếu cột để vẽ biểu đồ FR-402: {', '.join(missing)}")
 
     selected = overlay_df[
         (overlay_df["ne_id"].astype(str) == str(ne_id))
@@ -34,7 +34,7 @@ def write_weekly_profile_svg(
         & (overlay_df["kpi_name"].astype(str) == str(kpi_name))
     ].copy()
     if selected.empty:
-        raise ValueError("No FR-402 overlay data for selected NE/Cell/KPI")
+        raise ValueError("Không có dữ liệu overlay FR-402 cho NE/Cell/KPI đã chọn")
 
     selected["mean"] = pd.to_numeric(selected["mean"], errors="coerce")
     selected["minute_of_day"] = pd.to_numeric(
@@ -42,7 +42,7 @@ def write_weekly_profile_svg(
     )
     selected = selected.dropna(subset=["mean", "minute_of_day"])
     if selected.empty:
-        raise ValueError("FR-402 overlay has no numeric values to plot")
+        raise ValueError("Overlay FR-402 không có giá trị số để vẽ")
 
     width, height = 1200, 520
     left, right, top, bottom = 80, 30, 45, 70
@@ -66,7 +66,7 @@ def write_weekly_profile_svg(
         f'viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="white"/>',
         f'<text x="{left}" y="25" font-family="Arial" font-size="18">'
-        f'{escape(ne_id)} / {escape(cell_id)} / {escape(kpi_name)} - WEEKDAY vs WEEKEND</text>',
+        f'{escape(ne_id)} / {escape(cell_id)} / {escape(kpi_name)} - WEEKDAY và WEEKEND</text>',
         f'<line x1="{left}" y1="{top + plot_height}" x2="{left + plot_width}" '
         f'y2="{top + plot_height}" stroke="#333"/>',
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_height}" stroke="#333"/>',
