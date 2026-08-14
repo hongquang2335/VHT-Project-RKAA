@@ -1,0 +1,31 @@
+# FR-303: ngưỡng cảnh báo theo từng KPI.
+# Các giá trị threshold nghiệp vụ không được tự giả định trong mã nguồn.
+# Kỹ sư điền warning/critical phù hợp với quy định vận hành thực tế.
+#
+# Cú pháp cho mỗi chiều:
+#   warning: {type: ABSOLUTE|PERCENTAGE, value: <số không âm>}
+#   critical: {type: ABSOLUTE|PERCENTAGE, value: <số không âm>}
+#
+# Ví dụ trong SRS chỉ mang tính minh họa và không được kích hoạt mặc định.
+
+kpis:
+  ENDC_SSR:
+    direction_preference: higher_is_better
+
+  ENDC_CDR:
+    direction_preference: lower_is_better
+
+  NR_RASR:
+    direction_preference: higher_is_better
+
+  PSCELL_CHANGE_INTRA_SGNB_SR:
+    direction_preference: higher_is_better
+
+  PSCELL_CHANGE_INTER_SGNB_SR:
+    direction_preference: higher_is_better
+
+  MAX_RRC_CONNECTED_NR_ENDC_USER:
+    direction_preference: informational
+
+  NSA_PS_TRAFFIC:
+    direction_preference: informational
