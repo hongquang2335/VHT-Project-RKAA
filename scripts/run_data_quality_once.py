@@ -11,6 +11,7 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from rkaa.domain.data_collector.kpi_row_selector import select_kpi_rows  # noqa: E402
 from rkaa.domain.data_quality.service import DataQualityService  # noqa: E402
 from rkaa.infrastructure.config.data_quality_loader import (  # noqa: E402
     load_data_quality_config,
@@ -55,7 +56,8 @@ def main() -> None:
 
     config = load_data_quality_config(config_path)
     df = pd.read_csv(input_path)
-    result = DataQualityService(config).check(df)
+    kpi_df, skipped_counters = select_kpi_rows(df)
+    result = DataQualityService(config).check(kpi_df)
 
     for path in (quality_path, issues_path, summary_path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +67,7 @@ def main() -> None:
     result.summary_df.to_csv(summary_path, index=False, encoding="utf-8-sig")
 
     print("FR-203 Data Quality Summary")
+    print(f"Counter skipped: {skipped_counters}")
     print(f"Input records:   {result.summary['input_records']}")
     print(f"Output records:  {result.summary['output_records']}")
     print(f"Issue records:   {result.summary['issue_records']}")

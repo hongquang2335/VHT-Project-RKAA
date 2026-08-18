@@ -23,7 +23,7 @@ def test_fr203_pipeline_generates_quality_issues_and_summary() -> None:
             ],
             "ne_id": ["gHM00001"] * 3,
             "cell_id": ["CELL_A"] * 3,
-            "kpi_name": ["ENDC_SSR"] * 3,
+            "kpi_name": ["ENDC SSR VTNET IniAtt (%)"] * 3,
             "value": [99.0, 99.0, 120.0],
             "unit": ["%"] * 3,
             "quality_flag": ["GOOD"] * 3,

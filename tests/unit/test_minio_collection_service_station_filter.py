@@ -3,7 +3,26 @@ from __future__ import annotations
 import pandas as pd
 
 from rkaa.domain.data_collector.minio_collection_service import MinioCollectionService
-from rkaa.domain.data_collector.minio_kpi_normalizer import MinioKPINormalizer
+from rkaa.domain.data_collector.minio_kpi_normalizer import (
+    KPIMappingItem,
+    MinioKPINormalizer,
+)
+
+
+KPI_MAPPING = [
+    KPIMappingItem(
+        source_column="ENDC SSR VTNET IniAtt (%)",
+        canonical_name="ENDC SSR VTNET IniAtt (%)",
+        unit="%",
+        direction_preference="higher_is_better",
+    ),
+    KPIMappingItem(
+        source_column="EN-DC CSSR (%)",
+        canonical_name="EN-DC CSSR (%)",
+        unit="%",
+        direction_preference="higher_is_better",
+    ),
+]
 
 
 class FakeAdapter:
@@ -19,13 +38,8 @@ class FakeAdapter:
                 "datetime": [pd.Timestamp("2026-07-01 00:00:00")],
                 "ne": ["gHM00001"],
                 "cellname": ["gHM00001_30n411"],
-                "ENDC SSR VTNET (%)": [99.0],
-                "ENDC CDR VTNET (%)": [1.0],
-                "NR RASR VTNET (%)": [95.0],
-                "PSCell Change Intra-SgNB SR VTNET (%)": [99.0],
-                "PSCell Change Inter-SgNB SR VTNET (%)": [97.0],
-                "Max RRC Connected NR ENDC User (UE)": [10],
-                "NSA PS Traffic (GBytes)": [20.5],
+                "ENDC SSR VTNET IniAtt (%)": [99.0],
+                "EN-DC CSSR (%)": [98.5],
             }
         )
 
@@ -34,7 +48,7 @@ def test_collect_for_stations_passes_ne_filter_and_preserves_cell() -> None:
     adapter = FakeAdapter()
     service = MinioCollectionService(
         adapter=adapter,  # type: ignore[arg-type]
-        normalizer=MinioKPINormalizer(),
+        normalizer=MinioKPINormalizer(kpi_mapping=KPI_MAPPING),
     )
 
     result = service.collect_for_stations(
@@ -45,6 +59,6 @@ def test_collect_for_stations_passes_ne_filter_and_preserves_cell() -> None:
 
     assert adapter.received_station_ids == ["gHM00001"]
     assert adapter.received_ne_col == "ne"
-    assert result.shape == (7, 8)
+    assert result.shape == (2, 9)
     assert set(result["ne_id"]) == {"gHM00001"}
     assert set(result["cell_id"]) == {"gHM00001_30n411"}

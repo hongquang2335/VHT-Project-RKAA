@@ -20,7 +20,7 @@ filters:
       - POWER_ADJUSTMENT
       - FEATURE_ACTIVATION
 
-  # Bước 3: mã nguồn detector có sẵn nhưng mặc định tắt vì 7 KPI hiện tại
+  # Bước 3: mã nguồn detector có sẵn nhưng mặc định tắt vì 8 KPI hiện tại
   # không phải cumulative counter. Bật khi eligible_metrics có counter phù hợp.
   restart:
     enabled: false
@@ -57,22 +57,25 @@ filters:
   custom_rule:
     enabled: true
     rules:
-      ENDC_SSR:
+      "ENDC SSR VTNET IniAtt (%)":
         min: 0
         max: 100
-      ENDC_CDR:
+      "EN-DC CSSR (%)":
         min: 0
         max: 100
-      NR_RASR:
+      "ENDC CDR VTNET (%)":
         min: 0
         max: 100
-      PSCELL_CHANGE_INTRA_SGNB_SR:
+      "NR RASR VTNET (%)":
         min: 0
         max: 100
-      PSCELL_CHANGE_INTER_SGNB_SR:
+      "PSCell Change Intra-SgNB SR VTNET (%)":
         min: 0
         max: 100
-      MAX_RRC_CONNECTED_NR_ENDC_USER:
+      "PSCell Change Inter-SgNB SR VTNET (%)":
         min: 0
-      NSA_PS_TRAFFIC:
+        max: 100
+      "Max RRC Connected NR ENDC User (UE)":
+        min: 0
+      "NSA PS Traffic (GBytes)":
         min: 0

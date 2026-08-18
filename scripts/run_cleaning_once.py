@@ -13,6 +13,7 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from rkaa.domain.data_collector.kpi_row_selector import select_kpi_rows
 from rkaa.domain.event_calendar.service import EventCalendarService
 from rkaa.domain.noise_filter.models import ExclusionWindow
 from rkaa.domain.noise_filter.service import NoiseFilterService
@@ -124,6 +125,7 @@ def main() -> None:
 
     config = load_data_cleaning_config(config_path)
     long_df = pd.read_csv(input_path)
+    long_df, skipped_counters = select_kpi_rows(long_df)
 
     exclusion_windows: list[ExclusionWindow] = []
     impact_source_status = "DISABLED"
@@ -142,6 +144,7 @@ def main() -> None:
     result.cleaned_df.to_csv(cleaned_output_path, index=False, encoding="utf-8-sig")
     result.excluded_df.to_csv(excluded_output_path, index=False, encoding="utf-8-sig")
 
+    print(f"Counter skipped: {skipped_counters}")
     print("Cleaned output:", cleaned_output_path)
     print("Excluded output:", excluded_output_path)
     print()

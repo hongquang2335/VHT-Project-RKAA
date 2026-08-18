@@ -18,6 +18,7 @@ from rkaa.domain.data_collector.minio_collection_service import MinioCollectionS
 from rkaa.domain.data_collector.minio_kpi_adapter import MinioKPIAdapter
 from rkaa.domain.data_collector.minio_kpi_normalizer import MinioKPINormalizer
 from rkaa.domain.data_collector.station_selection import normalize_station_ids
+from rkaa.infrastructure.config.kpi_mapping_loader import load_kpi_mapping
 from rkaa.infrastructure.config.station_list_loader import load_station_ids_from_yaml
 from rkaa.infrastructure.object_store.minio_duckdb import (
     create_minio_duckdb_connection,
@@ -62,6 +63,11 @@ def main() -> None:
         ),
     )
     parser.add_argument("--limit", type=int, default=1000)
+    parser.add_argument(
+        "--kpi-config",
+        default="configs/kpi_mapping.yaml",
+        help="YAML chứa danh sách KPI và counter cần đọc từ MinIO",
+    )
     parser.add_argument("--output", default="tmp/minio_kpi_long.csv")
     parser.add_argument("--datetime-col", default=None)
     parser.add_argument("--ne-col", default=None)
@@ -95,7 +101,15 @@ def main() -> None:
         args.cellname_col or os.getenv("CELLNAME_COL") or "cellname"
     ).strip().strip('"').strip("'")
 
+    kpi_config_path = Path(args.kpi_config)
+    if not kpi_config_path.is_absolute():
+        kpi_config_path = ROOT_DIR / kpi_config_path
+    if not kpi_config_path.exists():
+        parser.error(f"Không tìm thấy KPI config: {kpi_config_path}")
+    kpi_mapping = load_kpi_mapping(kpi_config_path)
+
     normalizer = MinioKPINormalizer(
+        kpi_mapping=kpi_mapping,
         datetime_col=datetime_col,
         ne_col=ne_col,
         cellname_col=cellname_col,
@@ -130,6 +144,10 @@ def main() -> None:
 
     print("Output:", output_path)
     print("Shape:", long_df.shape)
+    if "is_counter" in long_df.columns:
+        counter_count = int(long_df["is_counter"].fillna(False).astype(bool).sum())
+        print("KPI records:", len(long_df) - counter_count)
+        print("Counter records:", counter_count)
     print(long_df.head(30).to_string())
 
 

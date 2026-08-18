@@ -12,52 +12,7 @@ class KPIMappingItem:
     canonical_name: str
     unit: str
     direction_preference: str
-
-
-DEFAULT_KPI_MAPPING: list[KPIMappingItem] = [
-    KPIMappingItem(
-        source_column="ENDC SSR VTNET (%)",
-        canonical_name="ENDC_SSR",
-        unit="%",
-        direction_preference="higher_is_better",
-    ),
-    KPIMappingItem(
-        source_column="ENDC CDR VTNET (%)",
-        canonical_name="ENDC_CDR",
-        unit="%",
-        direction_preference="lower_is_better",
-    ),
-    KPIMappingItem(
-        source_column="NR RASR VTNET (%)",
-        canonical_name="NR_RASR",
-        unit="%",
-        direction_preference="higher_is_better",
-    ),
-    KPIMappingItem(
-        source_column="PSCell Change Intra-SgNB SR VTNET (%)",
-        canonical_name="PSCELL_CHANGE_INTRA_SGNB_SR",
-        unit="%",
-        direction_preference="higher_is_better",
-    ),
-    KPIMappingItem(
-        source_column="PSCell Change Inter-SgNB SR VTNET (%)",
-        canonical_name="PSCELL_CHANGE_INTER_SGNB_SR",
-        unit="%",
-        direction_preference="higher_is_better",
-    ),
-    KPIMappingItem(
-        source_column="Max RRC Connected NR ENDC User (UE)",
-        canonical_name="MAX_RRC_CONNECTED_NR_ENDC_USER",
-        unit="UE",
-        direction_preference="informational",
-    ),
-    KPIMappingItem(
-        source_column="NSA PS Traffic (GBytes)",
-        canonical_name="NSA_PS_TRAFFIC",
-        unit="GBytes",
-        direction_preference="informational",
-    ),
-]
+    is_counter: bool = False
 
 
 class MinioKPINormalizer:
@@ -66,17 +21,20 @@ class MinioKPINormalizer:
     def __init__(
         self,
         *,
+        kpi_mapping: list[KPIMappingItem],
         datetime_col: str = "datetime",
         ne_col: str = "ne",
         cellname_col: str = "cellname",
         granularity_minutes: int = 15,
-        kpi_mapping: list[KPIMappingItem] | None = None,
     ) -> None:
+        if not kpi_mapping:
+            raise ValueError("kpi_mapping không được rỗng")
+
         self.datetime_col = datetime_col
         self.ne_col = ne_col
         self.cellname_col = cellname_col
         self.granularity_minutes = granularity_minutes
-        self.kpi_mapping = kpi_mapping or DEFAULT_KPI_MAPPING
+        self.kpi_mapping = list(kpi_mapping)
 
     def required_columns(self) -> list[str]:
         return [
@@ -120,7 +78,7 @@ class MinioKPINormalizer:
 
                 value = row[item.source_column]
                 if pd.isna(value):
-                    # FR-201 cần nhìn thấy null để ghi nhận và loại có lý do.
+                    # FR-201 cần nhìn thấy null của KPI để ghi nhận và loại có lý do.
                     records.append(
                         {
                             "timestamp": start_time.isoformat(),
@@ -131,6 +89,7 @@ class MinioKPINormalizer:
                             "value": float("nan"),
                             "unit": item.unit,
                             "quality_flag": "MISSING",
+                            "is_counter": item.is_counter,
                         }
                     )
                     continue
@@ -150,6 +109,7 @@ class MinioKPINormalizer:
                         "value": numeric_value,
                         "unit": item.unit,
                         "quality_flag": "GOOD",
+                        "is_counter": item.is_counter,
                     }
                 )
 
@@ -164,5 +124,6 @@ class MinioKPINormalizer:
                 "value",
                 "unit",
                 "quality_flag",
+                "is_counter",
             ],
         )
