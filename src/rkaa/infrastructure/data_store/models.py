@@ -11,3 +11,4 @@ class KPIRecord:
     value: float
     unit: str
     quality_flag: str
+    is_counter: bool = False

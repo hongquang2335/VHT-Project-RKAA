@@ -28,6 +28,7 @@ class MinioCollectionService:
                 "value",
                 "unit",
                 "quality_flag",
+                "is_counter",
             ]
         )
 

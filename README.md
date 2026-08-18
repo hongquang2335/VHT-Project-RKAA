@@ -21,7 +21,7 @@ Trên Windows PowerShell, kích hoạt môi trường bằng:
 
 ## Cấu hình
 
-FR-101 dùng file secret cục bộ `secrets/minio.local` (có mẫu `secrets/minio.local.example`). Bản MinIO này giữ mapping 7 KPI trực tiếp trong `DEFAULT_KPI_MAPPING` của `minio_kpi_normalizer.py` để khớp mã nguồn cũ. FR-103 tiếp tục dùng `configs/impact_types.yaml`.
+FR-101 dùng file secret cục bộ `secrets/minio.local` (có mẫu `secrets/minio.local.example`). Danh sách 8 KPI và các counter cần thu thập được khai báo trong `configs/kpi_mapping.yaml`; `canonical_name` luôn bằng `source_column`, và counter được đánh dấu bằng `is_counter=true`. FR-103 tiếp tục dùng `configs/impact_types.yaml`.
 
 ## Chạy FR-101
 
