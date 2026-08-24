@@ -35,14 +35,12 @@ def main() -> None:
         help="Toàn bộ KPI + counter sau FR-203.",
     )
     parser.add_argument(
-        "--observation-kpi-output",
-        default="tmp/phase3/observation_kpi.csv",
-        help="Snapshot KPI gần raw + quality flags cho luồng observation.",
-    )
-    parser.add_argument(
-        "--counter-output",
-        default="tmp/phase3/quality_checked_counter.csv",
-        help="Counter sau FR-203; không qua FR-201 ở Pha 3.",
+        "--observation-output",
+        default="tmp/phase3/observation_metrics.csv",
+        help=(
+            "Snapshot observation KPI + counter sau FR-203; giữ quality flags "
+            "và chưa qua FR-201."
+        ),
     )
     parser.add_argument(
         "--issues-output",
@@ -57,8 +55,7 @@ def main() -> None:
     input_path = _resolve_path(args.input)
     config_path = _resolve_path(args.config)
     quality_path = _resolve_path(args.quality_output)
-    observation_kpi_path = _resolve_path(args.observation_kpi_output)
-    counter_path = _resolve_path(args.counter_output)
+    observation_path = _resolve_path(args.observation_output)
     issues_path = _resolve_path(args.issues_output)
     summary_path = _resolve_path(args.summary_output)
 
@@ -70,28 +67,28 @@ def main() -> None:
     config = load_data_quality_config(config_path)
     df = pd.read_csv(input_path)
     result = DataQualityService(config).check(df)
-    observation_kpi_df, counter_df = split_metric_rows(result.quality_df)
+    observation_df = result.quality_df.copy()
+    observation_kpi_df, observation_counter_df = split_metric_rows(observation_df)
 
     for path in (
         quality_path,
-        observation_kpi_path,
-        counter_path,
+        observation_path,
         issues_path,
         summary_path,
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
 
     result.quality_df.to_csv(quality_path, index=False, encoding="utf-8-sig")
-    observation_kpi_df.to_csv(observation_kpi_path, index=False, encoding="utf-8-sig")
-    counter_df.to_csv(counter_path, index=False, encoding="utf-8-sig")
+    observation_df.to_csv(observation_path, index=False, encoding="utf-8-sig")
     result.issues_df.to_csv(issues_path, index=False, encoding="utf-8-sig")
     result.summary_df.to_csv(summary_path, index=False, encoding="utf-8-sig")
 
     print("FR-203 Data Quality Summary")
     print(f"Input records:       {result.summary['input_records']}")
     print(f"Output records:      {result.summary['output_records']}")
-    print(f"Observation KPI:     {len(observation_kpi_df)}")
-    print(f"Quality Counter:     {len(counter_df)}")
+    print(f"Observation records: {len(observation_df)}")
+    print(f"  KPI:               {len(observation_kpi_df)}")
+    print(f"  Counter:           {len(observation_counter_df)}")
     print(f"Issue records:       {result.summary['issue_records']}")
     print(f"Gaps > 2h:           {result.summary['gaps_over_2h']}")
     print("Issues by type:")
@@ -103,8 +100,7 @@ def main() -> None:
         print("CẢNH BÁO FR-203: phát hiện gap dữ liệu > 2 giờ", file=sys.stderr)
 
     print("Quality output:", quality_path)
-    print("Observation KPI output:", observation_kpi_path)
-    print("Counter output:", counter_path)
+    print("Observation output:", observation_path)
     print("Issues output:", issues_path)
     print("Summary output:", summary_path)
 
