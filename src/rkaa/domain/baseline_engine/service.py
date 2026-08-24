@@ -110,6 +110,71 @@ class BaselineEngine:
             validate="one_to_one",
         )
 
+
+    def annotate_reliability(
+        self,
+        profiled_df: pd.DataFrame,
+        baseline_df: pd.DataFrame,
+        *,
+        minimum_clean_days: int = 14,
+    ) -> pd.DataFrame:
+        """Áp BR-01: baseline chỉ đáng tin khi KPI có đủ ngày dữ liệu sạch.
+
+        Số ngày được tính theo series ``NE + Cell + KPI`` từ chính dữ liệu đã
+        đi qua FR-201. Không tạo thêm mức completeness/status ngoài BR-01.
+        """
+
+        if minimum_clean_days < 1:
+            raise ValueError("minimum_clean_days phải >= 1")
+
+        series_keys = ["ne_id", "cell_id", "kpi_name"]
+        required_records = set(series_keys + ["timestamp"])
+        required_baseline = set(series_keys)
+        missing_records = sorted(required_records.difference(profiled_df.columns))
+        missing_baseline = sorted(required_baseline.difference(baseline_df.columns))
+        if missing_records:
+            raise ValueError(
+                f"Dữ liệu baseline thiếu cột cho BR-01: {', '.join(missing_records)}"
+            )
+        if missing_baseline:
+            raise ValueError(
+                f"Baseline thiếu cột cho BR-01: {', '.join(missing_baseline)}"
+            )
+
+        timestamps = pd.to_datetime(
+            profiled_df["timestamp"],
+            errors="coerce",
+            utc=True,
+            format="mixed",
+        )
+        if timestamps.isna().any():
+            raise ValueError("BR-01 nhận timestamp không hợp lệ")
+
+        dates = profiled_df[series_keys].copy()
+        if "local_timestamp" in profiled_df.columns:
+            local = pd.to_datetime(profiled_df["local_timestamp"], errors="coerce")
+            if local.isna().any():
+                raise ValueError("BR-01 nhận local_timestamp không hợp lệ")
+            dates["_clean_date"] = local.dt.strftime("%Y-%m-%d")
+        else:
+            dates["_clean_date"] = timestamps.dt.strftime("%Y-%m-%d")
+
+        day_counts = (
+            dates.groupby(series_keys, dropna=False)["_clean_date"]
+            .nunique()
+            .rename("clean_day_count")
+            .reset_index()
+        )
+        result = baseline_df.merge(
+            day_counts,
+            how="left",
+            on=series_keys,
+            validate="many_to_one",
+        )
+        result["clean_day_count"] = result["clean_day_count"].fillna(0).astype(int)
+        result["baseline_reliable"] = result["clean_day_count"] >= minimum_clean_days
+        return result
+
     def attach_baseline(
         self,
         profiled_df: pd.DataFrame,

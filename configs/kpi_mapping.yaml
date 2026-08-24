@@ -1,5 +1,5 @@
 # Danh sách cột đọc từ MinIO. canonical_name luôn bằng source_column.
-# KPI đi tiếp qua FR-203/FR-201; counter hiện chỉ được thu thập và gắn cờ.
+# KPI và counter cùng đi qua FR-203. Chỉ KPI đi tiếp FR-201 để tạo baseline.
 kpis:
   - source_column: "ENDC SSR VTNET IniAtt (%)"
     unit: "%"
@@ -26,8 +26,8 @@ kpis:
     unit: "GBytes"
     direction_preference: "informational"
 
-# Chưa áp dụng rule làm sạch/anomaly cho counter. Để trống unit khi chưa có
-# định nghĩa đơn vị đã được xác nhận trong tài liệu nguồn.
+# Counter Pha 3 dùng FR-203 chung: normalize, duplicate, gap và value >= 0.
+# Không áp IQR/Z-score/FR-201 cho counter. Để trống unit khi chưa được xác nhận.
 counters:
   - "pm.SgNB.X2SgNBReconfSuccIniAtt"
   - "pm.SgNB.SgNBAddReqRcvIniAtt"

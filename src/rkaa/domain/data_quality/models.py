@@ -36,6 +36,7 @@ class QualityRangeRule:
 class RangeValidationConfig:
     enabled: bool = True
     rules: dict[str, QualityRangeRule] = field(default_factory=dict)
+    counter_min_value: float | None = 0.0
 
 
 @dataclass(frozen=True, slots=True)

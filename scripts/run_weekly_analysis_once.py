@@ -42,6 +42,12 @@ def main() -> None:
         default="tmp/fr402/weekday_weekend_overlay.csv",
     )
     parser.add_argument(
+        "--minimum-clean-days",
+        type=int,
+        default=14,
+        help="BR-01: số ngày dữ liệu sạch tối thiểu để baseline được coi là đáng tin.",
+    )
+    parser.add_argument(
         "--min-weekday-dates",
         type=int,
         default=2,
@@ -61,6 +67,8 @@ def main() -> None:
         parser.error(
             f"Không tìm thấy input FR-402: {input_path}. Hãy chạy FR-401 trước."
         )
+    if args.minimum_clean_days < 1:
+        parser.error("--minimum-clean-days phải >= 1")
     if args.min_weekday_dates < 1:
         parser.error("--min-weekday-dates phải >= 1")
 
@@ -77,6 +85,16 @@ def main() -> None:
     weekday_baseline = engine.compute_weekday(
         result.profiled_df,
         min_distinct_dates=args.min_weekday_dates,
+    )
+    day_type_baseline = engine.annotate_reliability(
+        result.profiled_df,
+        day_type_baseline,
+        minimum_clean_days=args.minimum_clean_days,
+    )
+    weekday_baseline = engine.annotate_reliability(
+        result.profiled_df,
+        weekday_baseline,
+        minimum_clean_days=args.minimum_clean_days,
     )
 
     profiled_path = _resolve_path(args.profiled_output)
@@ -103,6 +121,16 @@ def main() -> None:
     print(f"Bản ghi WEEKEND:       {counts.get('WEEKEND', 0)}")
     print(f"Số dòng baseline loại ngày: {len(day_type_baseline)}")
     print(f"Số dòng baseline theo thứ: {len(weekday_baseline)}")
+    reliable_day_type = int(day_type_baseline["baseline_reliable"].sum())
+    reliable_weekday = int(weekday_baseline["baseline_reliable"].sum())
+    print(
+        "Baseline loại ngày đáng tin (BR-01): "
+        f"{reliable_day_type}/{len(day_type_baseline)}"
+    )
+    print(
+        "Baseline theo thứ đáng tin (BR-01): "
+        f"{reliable_weekday}/{len(weekday_baseline)}"
+    )
     print("Output đã gán profile:", profiled_path)
     print("Baseline theo loại ngày:", day_type_baseline_path)
     print("Baseline theo từng thứ:", weekday_baseline_path)

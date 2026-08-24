@@ -18,7 +18,13 @@ class LocalSpikeDetector:
             return []
 
         issues: list[DataQualityIssue] = []
-        for (_, _, _), group in df.groupby(
+        working = df
+        # Pha 3 chỉ dùng local-spike cho KPI. Counter vẫn qua normalize,
+        # duplicate, gap và range (>= 0) nhưng không bị đánh giá thống kê ở đây.
+        if "is_counter" in working.columns:
+            working = working.loc[~working["is_counter"].fillna(False).astype(bool)]
+
+        for (_, _, _), group in working.groupby(
             ["ne_id", "cell_id", "kpi_name"],
             sort=False,
         ):

@@ -70,3 +70,43 @@ def test_compare_pre_post_only_pairs_same_profile() -> None:
 
     assert compared["temporal_profile"].tolist() == ["BUSY"]
     assert compared["delta_mean"].item() == 1.0
+
+
+def _profiled_days(day_count: int) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for day in range(day_count):
+        ts = pd.Timestamp("2026-08-01T08:00:00Z") + pd.Timedelta(days=day)
+        rows.append(
+            {
+                "timestamp": ts.isoformat(),
+                "ne_id": "NE1",
+                "cell_id": "CELL_A",
+                "kpi_name": "ENDC_SSR",
+                "temporal_profile": "BUSY",
+                "value": 99.0,
+                "unit": "%",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def test_br01_marks_baseline_unreliable_before_14_clean_days() -> None:
+    profiled = _profiled_days(13)
+    engine = BaselineEngine()
+    baseline = engine.compute(profiled)
+
+    result = engine.annotate_reliability(profiled, baseline, minimum_clean_days=14)
+
+    assert result["clean_day_count"].item() == 13
+    assert bool(result["baseline_reliable"].item()) is False
+
+
+def test_br01_marks_baseline_reliable_at_14_clean_days() -> None:
+    profiled = _profiled_days(14)
+    engine = BaselineEngine()
+    baseline = engine.compute(profiled)
+
+    result = engine.annotate_reliability(profiled, baseline, minimum_clean_days=14)
+
+    assert result["clean_day_count"].item() == 14
+    assert bool(result["baseline_reliable"].item()) is True

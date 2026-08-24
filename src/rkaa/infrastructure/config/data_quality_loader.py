@@ -148,13 +148,23 @@ def load_data_quality_config(path: str | Path) -> DataQualityConfig:
     if gap.warning_threshold_minutes < gap.expected_interval_minutes:
         raise ValueError("warning_threshold_minutes phải >= expected_interval_minutes")
 
+    range_enabled = _bool(range_raw, "enabled", True)
+    counter_min_value = range_raw.get("counter_min_value", 0.0)
+    if counter_min_value is not None:
+        if isinstance(counter_min_value, bool) or not isinstance(
+            counter_min_value, (int, float)
+        ):
+            raise ValueError("range_validation.counter_min_value phải là số hoặc null")
+        counter_min_value = float(counter_min_value)
+
     range_validation = RangeValidationConfig(
-        enabled=_bool(range_raw, "enabled", True),
+        enabled=range_enabled,
         rules=(
             _load_range_rules(config_path=config_path, range_raw=range_raw)
-            if _bool(range_raw, "enabled", True)
+            if range_enabled
             else {}
         ),
+        counter_min_value=counter_min_value,
     )
     local_spike = LocalSpikeConfig(
         enabled=_bool(spike_raw, "enabled", True),
