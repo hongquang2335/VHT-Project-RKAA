@@ -30,11 +30,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="FR-401: phân tích profile ngày/đêm và baseline theo profile",
     )
-    parser.add_argument("--input", default="tmp/fr201/cleaned_kpi.csv")
+    parser.add_argument("--input", default="tmp/phase3/baseline_ready_kpi.csv")
     parser.add_argument("--config", default="configs/temporal_profile.yaml")
     parser.add_argument("--profiled-output", default="tmp/fr401/profiled_kpi.csv")
     parser.add_argument("--baseline-output", default="tmp/fr401/temporal_baseline.csv")
     parser.add_argument("--overlay-output", default="tmp/fr401/profile_overlay.csv")
+    parser.add_argument(
+        "--minimum-clean-days",
+        type=int,
+        default=14,
+        help="BR-01: số ngày dữ liệu sạch tối thiểu để baseline được coi là đáng tin.",
+    )
     parser.add_argument("--chart-output")
     parser.add_argument("--chart-ne")
     parser.add_argument("--chart-cell")
@@ -54,10 +60,19 @@ def main() -> None:
             "Muốn sinh chart phải truyền đủ --chart-output --chart-ne --chart-cell --chart-kpi"
         )
 
+    if args.minimum_clean_days < 1:
+        parser.error("--minimum-clean-days phải >= 1")
+
     config = load_temporal_profile_config(config_path)
     df = pd.read_csv(input_path)
     result = TemporalAnalyzer(config).analyze(df)
-    baseline = BaselineEngine().compute(result.profiled_df)
+    engine = BaselineEngine()
+    baseline = engine.compute(result.profiled_df)
+    baseline = engine.annotate_reliability(
+        result.profiled_df,
+        baseline,
+        minimum_clean_days=args.minimum_clean_days,
+    )
 
     profiled_path = _resolve_path(args.profiled_output)
     baseline_path = _resolve_path(args.baseline_output)
@@ -75,6 +90,8 @@ def main() -> None:
     print(f"Profiled records: {len(result.profiled_df)}")
     print(f"Profiles:         {', '.join(profiles)}")
     print(f"Baseline rows:    {len(baseline)}")
+    reliable_rows = int(baseline["baseline_reliable"].sum())
+    print(f"Reliable baseline rows (BR-01): {reliable_rows}/{len(baseline)}")
     print("Profiled output:", profiled_path)
     print("Baseline output:", baseline_path)
     print("Overlay output:", overlay_path)

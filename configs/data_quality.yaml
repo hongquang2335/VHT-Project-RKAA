@@ -15,6 +15,9 @@ gap_detection:
 
 range_validation:
   enabled: true
+  # FR-203: counter hiện chỉ áp quy tắc cơ bản value >= 0.
+  # Không suy diễn behavior/reset/wrap khi SRS chưa yêu cầu và chưa có tài liệu vendor.
+  counter_min_value: 0
   # Dùng lại một nguồn rule hiện có để tránh định nghĩa miền KPI ở hai nơi.
   rules_file: configs/data_cleaning.yaml
   rules_path: filters.custom_rule.rules

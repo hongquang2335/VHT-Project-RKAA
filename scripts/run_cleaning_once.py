@@ -105,11 +105,11 @@ def _print_summary(summary: dict[str, object], impact_source_status: str) -> Non
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chạy FR-201 trên dữ liệu long-format")
-    parser.add_argument("--input", default="tmp/minio_kpi_long.csv")
+    parser.add_argument("--input", default="tmp/phase3/observation_kpi.csv")
     parser.add_argument("--config", default="configs/data_cleaning.yaml")
     parser.add_argument("--metadata-db", default="tmp/rkaa_metadata.db")
-    parser.add_argument("--cleaned-output", default="tmp/fr201/cleaned_kpi.csv")
-    parser.add_argument("--excluded-output", default="tmp/fr201/excluded_kpi.csv")
+    parser.add_argument("--cleaned-output", default="tmp/phase3/baseline_ready_kpi.csv")
+    parser.add_argument("--excluded-output", default="tmp/phase3/baseline_excluded_kpi.csv")
     args = parser.parse_args()
 
     input_path = _resolve_path(args.input)

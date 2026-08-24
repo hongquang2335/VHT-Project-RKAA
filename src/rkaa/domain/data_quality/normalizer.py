@@ -18,6 +18,24 @@ _REQUIRED_COLUMNS = (
 )
 
 
+_TRUE_COUNTER_VALUES = {"1", "true", "yes", "y"}
+_FALSE_COUNTER_VALUES = {"0", "false", "no", "n", "", "<na>", "nan", "none"}
+
+
+def _normalize_is_counter(series: pd.Series) -> pd.Series:
+    """Chuẩn hóa cờ is_counter từ bool/string CSV về bool."""
+
+    if pd.api.types.is_bool_dtype(series.dtype):
+        return series.fillna(False).astype(bool)
+
+    normalized = series.astype("string").str.strip().str.lower().fillna("")
+    unknown = ~normalized.isin(_TRUE_COUNTER_VALUES | _FALSE_COUNTER_VALUES)
+    if unknown.any():
+        bad_values = sorted(set(normalized[unknown].astype(str)))
+        raise ValueError(f"is_counter có giá trị không hợp lệ: {bad_values}")
+    return normalized.isin(_TRUE_COUNTER_VALUES)
+
+
 class DataQualityNormalizer:
     def __init__(self, config: NormalizationConfig) -> None:
         self.config = config
@@ -34,6 +52,9 @@ class DataQualityNormalizer:
         for column in ("ne_id", "cell_id", "kpi_name", "unit", "quality_flag"):
             if column in working.columns:
                 working[column] = working[column].astype("string").str.strip()
+
+        if "is_counter" in working.columns:
+            working["is_counter"] = _normalize_is_counter(working["is_counter"])
 
         original_timestamp = working["timestamp"].copy()
         parsed_timestamp = pd.to_datetime(

@@ -119,3 +119,50 @@ def test_invalid_range_is_flagged_but_record_is_kept() -> None:
     assert len(result.quality_df) == 1
     assert "INVALID_RANGE" in result.quality_df.iloc[0]["data_quality_flags"]
     assert result.issues_df.iloc[0]["cell_id"] == "CELL_A"
+
+
+def test_negative_counter_is_flagged_by_shared_fr203_service() -> None:
+    df = _df(["2026-08-10 00:00:00"], [-1.0])
+    df["kpi_name"] = "pm.SgNB.X2SgNBReconfSuccIniAtt"
+    df["is_counter"] = True
+
+    result = DataQualityService(_base_config()).check(df)
+
+    assert len(result.quality_df) == 1
+    assert bool(result.quality_df["is_counter"].item()) is True
+    assert "INVALID_RANGE" in result.quality_df["data_quality_flags"].item()
+    assert "counter value=-1.0 < min=0.0" in result.issues_df["detail"].item()
+
+
+def test_positive_counter_is_kept_without_invalid_range() -> None:
+    df = _df(["2026-08-10 00:00:00"], [10.0])
+    df["kpi_name"] = "pm.SgNB.X2SgNBReconfSuccIniAtt"
+    df["is_counter"] = "true"
+
+    result = DataQualityService(_base_config()).check(df)
+
+    assert bool(result.quality_df["is_counter"].item()) is True
+    assert "INVALID_RANGE" not in set(result.issues_df["issue_type"])
+
+
+def test_local_spike_is_not_applied_to_counter_in_phase3() -> None:
+    config = DataQualityConfig(
+        gap=GapConfig(enabled=False),
+        range_validation=RangeValidationConfig(enabled=True, counter_min_value=0.0),
+        local_spike=LocalSpikeConfig(
+            enabled=True,
+            window_samples=4,
+            min_samples=2,
+            robust_z_threshold=1.0,
+        ),
+    )
+    timestamps = pd.date_range("2026-08-10", periods=6, freq="15min").strftime(
+        "%Y-%m-%d %H:%M:%S"
+    ).tolist()
+    df = _df(timestamps, [10.0, 11.0, 10.0, 11.0, 1000.0, 10.0])
+    df["kpi_name"] = "pm.SgNB.X2SgNBReconfSuccIniAtt"
+    df["is_counter"] = True
+
+    result = DataQualityService(config).check(df)
+
+    assert "LOCAL_SPIKE" not in set(result.issues_df["issue_type"])

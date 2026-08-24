@@ -107,7 +107,7 @@ Dữ liệu tạm mặc định được ghi trong thư mục `tmp/`.
 Schema long-format sau FR-101 giữ riêng định danh NE và cell:
 
 ```text
-timestamp, period_end, ne_id, cell_id, kpi_name, value, unit, quality_flag
+timestamp, period_end, ne_id, cell_id, kpi_name, value, unit, quality_flag, is_counter
 ```
 
 Với dữ liệu long-format, một giá trị KPI được định danh bởi
@@ -115,8 +115,8 @@ Với dữ liệu long-format, một giá trị KPI được định danh bởi
 
 ## Chạy FR-201 — Lọc nhiễu dữ liệu
 
-FR-201 chạy sau FR-101 trên file long-format, không ghi hoặc sửa dữ liệu trên MinIO.
-Cấu hình mặc định nằm tại `configs/data_cleaning.yaml`.
+FR-201 chạy trên nhánh KPI sau FR-203, không ghi hoặc sửa dữ liệu trên MinIO.
+Cấu hình mặc định nằm tại `configs/data_cleaning.yaml`. Counter không qua FR-201 trong Pha 3.
 
 Thứ tự lọc:
 
@@ -132,24 +132,25 @@ Chạy với output mặc định:
 python scripts/run_cleaning_once.py
 ```
 
-Mặc định script đọc `tmp/minio_kpi_long.csv` và ghi hai file:
+Mặc định script đọc snapshot observation KPI từ FR-203 và ghi hai file:
 
 ```text
-tmp/fr201/cleaned_kpi.csv
-tmp/fr201/excluded_kpi.csv
+tmp/phase3/baseline_ready_kpi.csv
+tmp/phase3/baseline_excluded_kpi.csv
 ```
 
-`cleaned_kpi.csv` là dữ liệu còn được dùng cho phân tích tiếp. `excluded_kpi.csv`
-giữ lại record đã bị loại và thêm `filter_stage`, `filter_reason`, `detail` để audit.
+`baseline_ready_kpi.csv` là nhánh dữ liệu sạch dùng để xây baseline.
+`observation_kpi.csv` từ FR-203 vẫn được giữ riêng, nên statistical outlier bị loại khỏi
+baseline không bị mất khỏi luồng quan sát bất thường.
 
 Có thể chỉ định file khác:
 
 ```bash
 python scripts/run_cleaning_once.py \
-  --input tmp/minio_kpi_long.csv \
+  --input tmp/phase3/observation_kpi.csv \
   --config configs/data_cleaning.yaml \
-  --cleaned-output tmp/fr201/cleaned_kpi.csv \
-  --excluded-output tmp/fr201/excluded_kpi.csv
+  --cleaned-output tmp/phase3/baseline_ready_kpi.csv \
+  --excluded-output tmp/phase3/baseline_excluded_kpi.csv
 ```
 
 Bật/tắt từng bước lọc bằng `enabled: true/false` trong YAML. Nếu một nhóm
@@ -194,21 +195,31 @@ python scripts/run_data_quality_once.py
 Mặc định đọc `tmp/minio_kpi_long.csv`, dùng `configs/data_quality.yaml`, và sinh:
 
 ```text
-tmp/fr203/quality_checked_kpi.csv
+tmp/fr203/quality_checked_metrics.csv
+tmp/phase3/observation_kpi.csv
+tmp/phase3/quality_checked_counter.csv
 tmp/fr203/data_quality_issues.csv
 tmp/fr203/data_quality_summary.csv
 ```
 
-FR-203 thực hiện: chuẩn hóa timestamp/value/schema, exact/conflicting duplicate,
-gap theo `ne_id + cell_id + kpi_name`, range validation, và local spike bằng rolling median
-+ MAD. Exact duplicate giữ một bản; conflicting duplicate và local spike chỉ được
-gắn cờ, không tự xóa. Gap > 2 giờ được in cảnh báo trên terminal.
+FR-203 chạy chung cho KPI và counter: chuẩn hóa timestamp/value/schema,
+exact/conflicting duplicate, gap theo `ne_id + cell_id + kpi_name` và range validation.
+KPI tiếp tục có local spike bằng rolling median + MAD; counter Pha 3 chỉ áp kiểm tra cơ bản
+`value >= 0` và không chạy local-spike/IQR/Z-score. Exact duplicate giữ một bản;
+conflicting duplicate và local spike chỉ được gắn cờ, không tự xóa.
 
-Range validation dùng lại rule từ `configs/data_cleaning.yaml` để không duy trì hai
-bộ giới hạn KPI khác nhau.
+Range validation KPI dùng lại rule từ `configs/data_cleaning.yaml`; counter dùng policy
+chung `counter_min_value: 0` trong `configs/data_quality.yaml`.
 
-Để chạy FR-201 trên output đã quality-check:
+Luồng Pha 3 mặc định:
 
-```bash
-python scripts/run_cleaning_once.py --input tmp/fr203/quality_checked_kpi.csv
+```text
+MinIO snapshot -> FR-203
+                 |-- observation_kpi.csv ------> Pha phân tích sau
+                 |          |
+                 |          +-> FR-201 -> baseline_ready_kpi.csv -> FR-401/402
+                 +-- quality_checked_counter.csv -> giữ làm evidence cho pha sau
 ```
+
+FR-401/FR-402 còn gắn `clean_day_count` và `baseline_reliable` theo BR-01; mặc định
+baseline chỉ được coi là đáng tin khi có ít nhất 14 ngày dữ liệu sạch.
