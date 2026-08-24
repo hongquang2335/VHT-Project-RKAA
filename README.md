@@ -140,14 +140,14 @@ tmp/phase3/baseline_excluded_kpi.csv
 ```
 
 `baseline_ready_kpi.csv` là nhánh dữ liệu sạch dùng để xây baseline.
-`observation_kpi.csv` từ FR-203 vẫn được giữ riêng, nên statistical outlier bị loại khỏi
+`observation_metrics.csv` từ FR-203 vẫn được giữ riêng và chứa cả KPI + counter, nên statistical outlier bị loại khỏi
 baseline không bị mất khỏi luồng quan sát bất thường.
 
 Có thể chỉ định file khác:
 
 ```bash
 python scripts/run_cleaning_once.py \
-  --input tmp/phase3/observation_kpi.csv \
+  --input tmp/phase3/observation_metrics.csv \
   --config configs/data_cleaning.yaml \
   --cleaned-output tmp/phase3/baseline_ready_kpi.csv \
   --excluded-output tmp/phase3/baseline_excluded_kpi.csv
@@ -196,8 +196,7 @@ Mặc định đọc `tmp/minio_kpi_long.csv`, dùng `configs/data_quality.yaml`
 
 ```text
 tmp/fr203/quality_checked_metrics.csv
-tmp/phase3/observation_kpi.csv
-tmp/phase3/quality_checked_counter.csv
+tmp/phase3/observation_metrics.csv
 tmp/fr203/data_quality_issues.csv
 tmp/fr203/data_quality_summary.csv
 ```
@@ -214,11 +213,11 @@ chung `counter_min_value: 0` trong `configs/data_quality.yaml`.
 Luồng Pha 3 mặc định:
 
 ```text
-MinIO snapshot -> FR-203
-                 |-- observation_kpi.csv ------> Pha phân tích sau
-                 |          |
-                 |          +-> FR-201 -> baseline_ready_kpi.csv -> FR-401/402
-                 +-- quality_checked_counter.csv -> giữ làm evidence cho pha sau
+MinIO snapshot -> FR-203 -> observation_metrics.csv (KPI + Counter + quality flags)
+                                  |
+                                  |-- KPI -----> FR-201 -> baseline_ready_kpi.csv -> FR-401/402
+                                  |
+                                  +-- KPI + Counter ---------------------------> Pha phân tích sau
 ```
 
 FR-401/FR-402 còn gắn `clean_day_count` và `baseline_reliable` theo BR-01; mặc định

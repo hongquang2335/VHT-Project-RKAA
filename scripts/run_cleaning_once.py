@@ -105,7 +105,7 @@ def _print_summary(summary: dict[str, object], impact_source_status: str) -> Non
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chạy FR-201 trên dữ liệu long-format")
-    parser.add_argument("--input", default="tmp/phase3/observation_kpi.csv")
+    parser.add_argument("--input", default="tmp/phase3/observation_metrics.csv")
     parser.add_argument("--config", default="configs/data_cleaning.yaml")
     parser.add_argument("--metadata-db", default="tmp/rkaa_metadata.db")
     parser.add_argument("--cleaned-output", default="tmp/phase3/baseline_ready_kpi.csv")
