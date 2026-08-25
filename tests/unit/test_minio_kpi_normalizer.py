@@ -44,6 +44,10 @@ def test_normalizer_keeps_ne_and_cell_as_separate_identifiers() -> None:
         "pm.SgNB.X2SgNBReconfSuccIniAtt",
     ]
     assert result["is_counter"].tolist() == [False, True]
+    assert result["period_end"].tolist() == [
+        "2026-07-01T00:05:00",
+        "2026-07-01T00:05:00",
+    ]
 
 
 def test_normalizer_preserves_null_record_for_fr201() -> None:

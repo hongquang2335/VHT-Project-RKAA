@@ -140,7 +140,7 @@ def load_data_quality_config(path: str | Path) -> DataQualityConfig:
     duplicate = DuplicateConfig(enabled=_bool(duplicate_raw, "enabled", True))
     gap = GapConfig(
         enabled=_bool(gap_raw, "enabled", True),
-        expected_interval_minutes=_int(gap_raw, "expected_interval_minutes", 15),
+        expected_interval_minutes=_int(gap_raw, "expected_interval_minutes", 5),
         warning_threshold_minutes=_int(gap_raw, "warning_threshold_minutes", 120),
     )
     if gap.expected_interval_minutes < 1:
@@ -168,8 +168,8 @@ def load_data_quality_config(path: str | Path) -> DataQualityConfig:
     )
     local_spike = LocalSpikeConfig(
         enabled=_bool(spike_raw, "enabled", True),
-        window_samples=_int(spike_raw, "window_samples", 96),
-        min_samples=_int(spike_raw, "min_samples", 24),
+        window_samples=_int(spike_raw, "window_samples", 288),
+        min_samples=_int(spike_raw, "min_samples", 72),
         robust_z_threshold=_float(spike_raw, "robust_z_threshold", 6.0),
     )
     if local_spike.min_samples < 1:

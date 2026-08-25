@@ -222,3 +222,52 @@ MinIO snapshot -> FR-203 -> observation_metrics.csv (KPI + Counter + quality fla
 
 FR-401/FR-402 còn gắn `clean_day_count` và `baseline_reliable` theo BR-01; mặc định
 baseline chỉ được coi là đáng tin khi có ít nhất 14 ngày dữ liệu sạch.
+
+## Long-history snapshot cho dữ liệu 5 phút
+
+Granularity vận hành hiện tại là **5 phút**. `period_end` được tính bằng
+`timestamp + 5 phút`; FR-203 cũng dùng `expected_interval_minutes: 5`.
+Local-spike rolling window mặc định giữ ý nghĩa 24 giờ nên dùng 288 mẫu, với
+minimum history 72 mẫu (6 giờ).
+
+Để lấy lịch sử dài mà không giữ toàn bộ dữ liệu trong RAM, dùng script chunked:
+
+```bash
+python scripts/run_history_collection.py \
+  --start-time "2026-05-01 00:00:00" \
+  --end-time "2026-08-01 00:00:00" \
+  --chunk-hours 6 \
+  --metric-kind kpi
+```
+
+Script chỉ SELECT MinIO, đọc danh sách NE từ `configs/stations.yaml`, và lưu mỗi
+chunk thành Parquet ZSTD trong `tmp/history_metrics/`. Mặc định chỉ lấy KPI để
+phục vụ quan sát dài hạn/trend; có thể dùng `--metric-kind all` hoặc
+`--metric-kind counter`, hoặc `--metric "<tên metric>"` để giới hạn phạm vi.
+Không có row limit mặc định; `--limit-per-chunk` chỉ dành cho smoke test.
+
+Query một phần dữ liệu đã lưu mà không load toàn bộ dataset:
+
+```bash
+python scripts/query_saved_metrics.py \
+  --store tmp/history_metrics \
+  --ne gHM00001 \
+  --cell CELL_A \
+  --metric "ENDC SSR VTNET IniAtt (%)" \
+  --start-time "2026-07-01 00:00:00" \
+  --end-time "2026-07-02 00:00:00" \
+  --limit 200 \
+  --output tmp/history_subset.csv
+```
+
+`Matched rows` là tổng số record thỏa filter; `--limit` chỉ giới hạn số dòng
+hiển thị/xuất. Nếu cần observation có cờ FR-203, đưa subset vừa query qua:
+
+```bash
+python scripts/run_data_quality_once.py \
+  --input tmp/history_subset.csv \
+  --observation-output tmp/history_subset_observation.csv
+```
+
+MinIO vẫn là raw source of truth; local Parquet chỉ là snapshot analytical để
+tránh query lại cùng một lịch sử dài và không thay thế SQLite metadata.

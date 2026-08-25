@@ -25,7 +25,7 @@ class MinioKPINormalizer:
         datetime_col: str = "datetime",
         ne_col: str = "ne",
         cellname_col: str = "cellname",
-        granularity_minutes: int = 15,
+        granularity_minutes: int = 5,
     ) -> None:
         if not kpi_mapping:
             raise ValueError("kpi_mapping không được rỗng")

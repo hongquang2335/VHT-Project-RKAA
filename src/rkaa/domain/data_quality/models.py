@@ -22,7 +22,7 @@ class DuplicateConfig:
 @dataclass(frozen=True, slots=True)
 class GapConfig:
     enabled: bool = True
-    expected_interval_minutes: int = 15
+    expected_interval_minutes: int = 5
     warning_threshold_minutes: int = 120
 
 
@@ -42,8 +42,8 @@ class RangeValidationConfig:
 @dataclass(frozen=True, slots=True)
 class LocalSpikeConfig:
     enabled: bool = True
-    window_samples: int = 96
-    min_samples: int = 24
+    window_samples: int = 288
+    min_samples: int = 72
     robust_z_threshold: float = 6.0
 
 
