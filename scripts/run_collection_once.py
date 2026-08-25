@@ -62,18 +62,31 @@ def main() -> None:
             "(mặc định: configs/stations.yaml)"
         ),
     )
-    parser.add_argument("--limit", type=int, default=1000)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Giới hạn số wide rows để smoke test; mặc định không giới hạn.",
+    )
     parser.add_argument(
         "--kpi-config",
         default="configs/kpi_mapping.yaml",
         help="YAML chứa danh sách KPI và counter cần đọc từ MinIO",
     )
     parser.add_argument("--output", default="tmp/minio_kpi_long.csv")
+    parser.add_argument(
+        "--granularity-minutes",
+        type=int,
+        default=5,
+        help="Độ dài một PM period; dữ liệu hiện tại dùng 5 phút.",
+    )
     parser.add_argument("--datetime-col", default=None)
     parser.add_argument("--ne-col", default=None)
     parser.add_argument("--cellname-col", default=None)
     parser.add_argument("--parquet-prefix", default="v3/*.parquet")
     args = parser.parse_args()
+    if args.granularity_minutes <= 0:
+        parser.error("--granularity-minutes phải > 0")
 
     station_ids = _resolve_station_ids(
         cli_station_ids=args.station_ids,
@@ -113,7 +126,7 @@ def main() -> None:
         datetime_col=datetime_col,
         ne_col=ne_col,
         cellname_col=cellname_col,
-        granularity_minutes=15,
+        granularity_minutes=args.granularity_minutes,
     )
     adapter = MinioKPIAdapter(
         conn,

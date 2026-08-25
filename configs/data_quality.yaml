@@ -9,7 +9,7 @@ duplicate_detection:
 
 gap_detection:
   enabled: true
-  expected_interval_minutes: 15
+  expected_interval_minutes: 5
   # Theo FR-203: chỉ cảnh báo khi gap > 2 giờ. Gap nhỏ hơn vẫn được report INFO.
   warning_threshold_minutes: 120
 
@@ -24,8 +24,9 @@ range_validation:
 
 local_spike:
   enabled: true
-  # 96 mẫu = 24 giờ nếu dữ liệu có granularity 15 phút.
-  window_samples: 96
-  min_samples: 24
+  # Granularity thực tế là 5 phút: 288 mẫu = 24 giờ.
+  window_samples: 288
+  # Giữ cùng minimum history 6 giờ như cấu hình cũ: 72 mẫu x 5 phút.
+  min_samples: 72
   # Robust z-score từ rolling median + MAD; chỉ gắn cờ, không tự xóa record.
   robust_z_threshold: 6.0
