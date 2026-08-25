@@ -16,8 +16,8 @@ from rkaa.domain.temporal_analyzer import TemporalAnalyzer  # noqa: E402
 from rkaa.infrastructure.config.temporal_profile_loader import (  # noqa: E402
     load_temporal_profile_config,
 )
-from rkaa.infrastructure.visualization.temporal_profile_svg import (  # noqa: E402
-    write_temporal_profile_svg,
+from rkaa.infrastructure.visualization.temporal_profile_png import (  # noqa: E402
+    write_temporal_profile_png,
 )
 
 
@@ -97,7 +97,7 @@ def main() -> None:
     print("Overlay output:", overlay_path)
 
     if all(chart_values):
-        chart_path = write_temporal_profile_svg(
+        chart_path = write_temporal_profile_png(
             result.overlay_df,
             ne_id=args.chart_ne,
             cell_id=args.chart_cell,

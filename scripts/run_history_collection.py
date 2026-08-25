@@ -33,11 +33,26 @@ def _resolve_path(value: str) -> Path:
     return path if path.is_absolute() else ROOT_DIR / path
 
 
-def _resolve_station_ids(cli_station_ids: list[str] | None, stations_file: str | None) -> list[str]:
-    station_ids = list(cli_station_ids or [])
+def _resolve_station_ids(
+    cli_station_ids: list[str] | None,
+    stations_file: str | None,
+) -> list[str]:
+    """Resolve phạm vi NE khi không chạy chế độ ``--all-stations``.
+
+    Nếu người dùng truyền ``--station`` thì chỉ dùng đúng danh sách CLI đó.
+    Nếu không truyền ``--station`` mới fallback về ``--stations-file``.
+    Cách này tránh việc một ``--station`` vô tình bị gộp thêm các NE trong
+    ``configs/stations.yaml``.
+    """
+    if cli_station_ids:
+        return normalize_station_ids(cli_station_ids)
+
     if stations_file:
-        station_ids.extend(load_station_ids_from_yaml(_resolve_path(stations_file)))
-    return normalize_station_ids(station_ids)
+        return normalize_station_ids(
+            load_station_ids_from_yaml(_resolve_path(stations_file))
+        )
+
+    return []
 
 
 def _select_mapping(mapping, *, metric_kind: str, metric_names: list[str] | None):
@@ -87,8 +102,31 @@ def main() -> None:
     parser.add_argument("--chunk-hours", type=int, default=6)
     parser.add_argument("--granularity-minutes", type=int, default=5)
     parser.add_argument("--secret-file", default="secrets/minio.local")
-    parser.add_argument("--stations-file", default="configs/stations.yaml")
-    parser.add_argument("--station", action="append", dest="station_ids")
+    parser.add_argument(
+        "--stations-file",
+        default="configs/stations.yaml",
+        help=(
+            "Danh sách NE mặc định khi không truyền --station. "
+            "Bị bỏ qua khi dùng --all-stations."
+        ),
+    )
+    parser.add_argument(
+        "--station",
+        action="append",
+        dest="station_ids",
+        help=(
+            "Chỉ lấy đúng NE này; có thể truyền nhiều lần. "
+            "Nếu có --station thì không đọc stations.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--all-stations",
+        action="store_true",
+        help=(
+            "Không lọc NE; lấy toàn bộ station/NE và cell có trong MinIO "
+            "ở khoảng thời gian được yêu cầu."
+        ),
+    )
     parser.add_argument("--kpi-config", default="configs/kpi_mapping.yaml")
     parser.add_argument("--metric-kind", choices=["all", "kpi", "counter"], default="kpi")
     parser.add_argument(
@@ -97,7 +135,14 @@ def main() -> None:
         dest="metric_names",
         help="Chỉ lấy metric này; có thể truyền nhiều lần.",
     )
-    parser.add_argument("--output-dir", default="tmp/history_metrics")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Thư mục snapshot. Mặc định: tmp/history_metrics_all khi "
+            "--all-stations, ngược lại tmp/history_metrics."
+        ),
+    )
     parser.add_argument("--datetime-col", default=None)
     parser.add_argument("--ne-col", default=None)
     parser.add_argument("--cellname-col", default=None)
@@ -120,9 +165,18 @@ def main() -> None:
     if args.granularity_minutes <= 0:
         parser.error("--granularity-minutes phải > 0")
 
-    station_ids = _resolve_station_ids(args.station_ids, args.stations_file)
-    if not station_ids:
-        parser.error("Cần ít nhất một NE từ --station hoặc --stations-file")
+    if args.all_stations and args.station_ids:
+        parser.error("Không dùng đồng thời --all-stations và --station")
+
+    if args.all_stations:
+        station_ids: list[str] = []
+    else:
+        station_ids = _resolve_station_ids(args.station_ids, args.stations_file)
+        if not station_ids:
+            parser.error(
+                "Cần ít nhất một NE từ --station/--stations-file "
+                "hoặc dùng --all-stations"
+            )
 
     secret_file = _resolve_path(args.secret_file)
     if secret_file.exists():
@@ -160,7 +214,10 @@ def main() -> None:
         ),
         normalizer=normalizer,
     )
-    store = LocalMetricParquetStore(_resolve_path(args.output_dir))
+    output_dir = args.output_dir or (
+        "tmp/history_metrics_all" if args.all_stations else "tmp/history_metrics"
+    )
+    store = LocalMetricParquetStore(_resolve_path(output_dir))
 
     total_rows = 0
     written_chunks = 0
@@ -177,12 +234,22 @@ def main() -> None:
                 skipped_chunks += 1
                 continue
 
-            long_df = service.collect_for_stations(
-                start_time=chunk_start.isoformat(sep=" "),
-                end_time=chunk_end.isoformat(sep=" "),
-                station_ids=station_ids,
-                limit=args.limit_per_chunk,
-            )
+            if args.all_stations:
+                # collect_once(..., cellname=None) không truyền station_ids xuống
+                # query builder, vì vậy SQL chỉ lọc theo thời gian/metric và lấy
+                # toàn bộ NE + cell có trong MinIO.
+                long_df = service.collect_once(
+                    start_time=chunk_start.isoformat(sep=" "),
+                    end_time=chunk_end.isoformat(sep=" "),
+                    limit=args.limit_per_chunk,
+                )
+            else:
+                long_df = service.collect_for_stations(
+                    start_time=chunk_start.isoformat(sep=" "),
+                    end_time=chunk_end.isoformat(sep=" "),
+                    station_ids=station_ids,
+                    limit=args.limit_per_chunk,
+                )
             store.write_chunk(
                 long_df,
                 start_time=chunk_start,
@@ -199,7 +266,11 @@ def main() -> None:
         conn.close()
 
     print("History collection complete")
-    print("Stations:", len(station_ids))
+    if args.all_stations:
+        print("Station scope: ALL (không lọc theo ne)")
+    else:
+        print("Station scope: SELECTED")
+        print("Stations:", len(station_ids), ", ".join(station_ids))
     print("Metrics:", len(mapping), f"kind={args.metric_kind}")
     print("Granularity minutes:", args.granularity_minutes)
     print("Chunks written:", written_chunks)

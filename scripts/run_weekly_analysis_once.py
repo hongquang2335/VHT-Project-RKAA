@@ -13,8 +13,8 @@ if str(SRC_DIR) not in sys.path:
 
 from rkaa.domain.baseline_engine import BaselineEngine  # noqa: E402
 from rkaa.domain.temporal_analyzer import WeeklyCycleAnalyzer  # noqa: E402
-from rkaa.infrastructure.visualization.weekly_profile_svg import (  # noqa: E402
-    write_weekly_profile_svg,
+from rkaa.infrastructure.visualization.weekly_profile_png import (  # noqa: E402
+    write_weekly_profile_png,
 )
 
 
@@ -137,7 +137,7 @@ def main() -> None:
     print("Output overlay:", overlay_path)
 
     if all(chart_values):
-        chart_path = write_weekly_profile_svg(
+        chart_path = write_weekly_profile_png(
             result.overlay_df,
             ne_id=args.chart_ne,
             cell_id=args.chart_cell,
