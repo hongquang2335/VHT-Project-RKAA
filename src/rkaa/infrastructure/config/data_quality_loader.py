@@ -59,7 +59,7 @@ def _resolve_related_path(config_path: Path, value: str) -> Path:
     if path.is_absolute():
         return path
     # data_quality.yaml nằm trong <root>/configs => parent.parent là project root.
-    return config_path.parent.parent / path
+    return (config_path.parent.parent / path).resolve()
 
 
 def _read_nested_mapping(payload: dict[str, Any], dotted_path: str) -> dict[str, Any]:
@@ -105,7 +105,11 @@ def _load_range_rules(
 
 
 def load_data_quality_config(path: str | Path) -> DataQualityConfig:
-    config_path = Path(path)
+    config_path = Path(path).expanduser().resolve()
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Không tìm thấy data quality config: {config_path}"
+        )
     with config_path.open("r", encoding="utf-8") as handle:
         payload = _mapping(yaml.safe_load(handle) or {}, "root")
 

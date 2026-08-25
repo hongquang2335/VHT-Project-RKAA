@@ -56,7 +56,11 @@ def _validate_full_day_coverage(windows: tuple[ProfileWindow, ...]) -> None:
 
 
 def load_temporal_profile_config(path: str | Path) -> TemporalProfileConfig:
-    config_path = Path(path)
+    config_path = Path(path).expanduser().resolve()
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Không tìm thấy temporal profile config: {config_path}"
+        )
     with config_path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
     if not isinstance(payload, dict):
