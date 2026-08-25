@@ -7,8 +7,13 @@ import pytest
 from rkaa.infrastructure.config.temporal_profile_loader import load_temporal_profile_config
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 def test_load_default_temporal_profile_config() -> None:
-    config = load_temporal_profile_config(Path("configs/temporal_profile.yaml"))
+    config = load_temporal_profile_config(
+        PROJECT_ROOT / "configs" / "temporal_profile.yaml"
+    )
 
     assert config.timezone == "UTC"
     assert len(config.windows) == 4
