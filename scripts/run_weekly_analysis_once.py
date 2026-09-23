@@ -12,18 +12,9 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from rkaa.domain.baseline_engine import BaselineEngine  # noqa: E402
-from rkaa.domain.temporal_analyzer import (  # noqa: E402
-    CycleComparisonAnalyzer,
-    WeeklyCycleAnalyzer,
-)
-from rkaa.infrastructure.config.cyclic_analysis_loader import (  # noqa: E402
-    load_cyclic_analysis_config,
-)
-from rkaa.infrastructure.config.kpi_threshold_loader import (  # noqa: E402
-    load_kpi_threshold_manager,
-)
+from rkaa.domain.temporal_analyzer import WeeklyCycleAnalyzer  # noqa: E402
 from rkaa.infrastructure.visualization.weekly_profile_png import (  # noqa: E402
-    write_weekly_cycle_png,
+    write_weekly_profile_png,
 )
 
 
@@ -34,14 +25,9 @@ def _resolve_path(value: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "FR-402: WEEKDAY/WEEKEND + day-of-week baseline + week-over-week "
-            "comparison; month-over-month cấu hình được nhưng mặc định tắt"
-        ),
+        description="FR-402: tách profile và baseline KPI theo WEEKDAY/WEEKEND",
     )
     parser.add_argument("--input", default="tmp/fr401/profiled_kpi.csv")
-    parser.add_argument("--cyclic-config", default="configs/cyclic_analysis.yaml")
-    parser.add_argument("--threshold-config", default="configs/kpi_thresholds.yaml")
     parser.add_argument("--profiled-output", default="tmp/fr402/profiled_kpi.csv")
     parser.add_argument(
         "--day-type-baseline-output",
@@ -54,10 +40,6 @@ def main() -> None:
     parser.add_argument(
         "--overlay-output",
         default="tmp/fr402/weekday_weekend_overlay.csv",
-    )
-    parser.add_argument(
-        "--comparison-output",
-        default="tmp/fr402/cycle_comparison.csv",
     )
     parser.add_argument(
         "--minimum-clean-days",
@@ -81,16 +63,10 @@ def main() -> None:
     args = parser.parse_args()
 
     input_path = _resolve_path(args.input)
-    cyclic_config_path = _resolve_path(args.cyclic_config)
-    threshold_config_path = _resolve_path(args.threshold_config)
     if not input_path.exists():
         parser.error(
             f"Không tìm thấy input FR-402: {input_path}. Hãy chạy FR-401 trước."
         )
-    if not cyclic_config_path.exists():
-        parser.error(f"Không tìm thấy cyclic config: {cyclic_config_path}")
-    if not threshold_config_path.exists():
-        parser.error(f"Không tìm thấy threshold config: {threshold_config_path}")
     if args.minimum_clean_days < 1:
         parser.error("--minimum-clean-days phải >= 1")
     if args.min_weekday_dates < 1:
@@ -121,24 +97,15 @@ def main() -> None:
         minimum_clean_days=args.minimum_clean_days,
     )
 
-    cyclic_config = load_cyclic_analysis_config(cyclic_config_path)
-    threshold_manager = load_kpi_threshold_manager(threshold_config_path)
-    comparison = CycleComparisonAnalyzer(
-        cyclic_config.statistical,
-        threshold_manager=threshold_manager,
-    ).compare_weekly_cycles(result.profiled_df, cyclic_config.fr402)
-
     profiled_path = _resolve_path(args.profiled_output)
     day_type_baseline_path = _resolve_path(args.day_type_baseline_output)
     weekday_baseline_path = _resolve_path(args.weekday_baseline_output)
     overlay_path = _resolve_path(args.overlay_output)
-    comparison_path = _resolve_path(args.comparison_output)
     for path in (
         profiled_path,
         day_type_baseline_path,
         weekday_baseline_path,
         overlay_path,
-        comparison_path,
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -146,39 +113,38 @@ def main() -> None:
     day_type_baseline.to_csv(day_type_baseline_path, index=False, encoding="utf-8-sig")
     weekday_baseline.to_csv(weekday_baseline_path, index=False, encoding="utf-8-sig")
     result.overlay_df.to_csv(overlay_path, index=False, encoding="utf-8-sig")
-    comparison.to_csv(comparison_path, index=False, encoding="utf-8-sig")
 
     counts = result.profiled_df["day_type"].value_counts().to_dict()
-    anomaly_count = int(comparison["anomaly_flag"].sum()) if not comparison.empty else 0
-    print("FR-402 Weekly Cycle Summary")
-    print(f"Input records:         {len(df)}")
-    print(f"WEEKDAY records:       {counts.get('WEEKDAY', 0)}")
-    print(f"WEEKEND records:       {counts.get('WEEKEND', 0)}")
-    print(f"Day-type baseline:     {len(day_type_baseline)}")
-    print(f"Weekday baseline:      {len(weekday_baseline)}")
-    print(f"Cycle comparisons:     {len(comparison)}")
-    print(f"Anomaly flags:         {anomaly_count}")
+    print("Tổng hợp chu kỳ tuần FR-402")
+    print(f"Số bản ghi đầu vào:    {len(df)}")
+    print(f"Bản ghi WEEKDAY:       {counts.get('WEEKDAY', 0)}")
+    print(f"Bản ghi WEEKEND:       {counts.get('WEEKEND', 0)}")
+    print(f"Số dòng baseline loại ngày: {len(day_type_baseline)}")
+    print(f"Số dòng baseline theo thứ: {len(weekday_baseline)}")
+    reliable_day_type = int(day_type_baseline["baseline_reliable"].sum())
+    reliable_weekday = int(weekday_baseline["baseline_reliable"].sum())
     print(
-        "Month-over-month:      "
-        + ("ENABLED" if cyclic_config.fr402.previous_month_enabled else "DISABLED")
+        "Baseline loại ngày đáng tin (BR-01): "
+        f"{reliable_day_type}/{len(day_type_baseline)}"
     )
-    print("Profiled output:", profiled_path)
-    print("Day-type baseline:", day_type_baseline_path)
-    print("Weekday baseline:", weekday_baseline_path)
-    print("Overlay output:", overlay_path)
-    print("Cycle comparison:", comparison_path)
+    print(
+        "Baseline theo thứ đáng tin (BR-01): "
+        f"{reliable_weekday}/{len(weekday_baseline)}"
+    )
+    print("Output đã gán profile:", profiled_path)
+    print("Baseline theo loại ngày:", day_type_baseline_path)
+    print("Baseline theo từng thứ:", weekday_baseline_path)
+    print("Output overlay:", overlay_path)
 
     if all(chart_values):
-        chart_path = write_weekly_cycle_png(
-            result.profiled_df,
+        chart_path = write_weekly_profile_png(
+            result.overlay_df,
             ne_id=args.chart_ne,
             cell_id=args.chart_cell,
             kpi_name=args.chart_kpi,
             output_path=_resolve_path(args.chart_output),
-            anchor_end=result.profiled_df["timestamp"].max(),
-            current_window_days=cyclic_config.fr402.current_window_days,
         )
-        print("Chart output:", chart_path)
+        print("Output biểu đồ:", chart_path)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,98 @@
+# Decisions
+
+- Prompt 01: khoi tao backend bang FastAPI toi thieu voi app entrypoint `src/rkaa/main.py` va endpoint `GET /health`.
+- Prompt 01: them `tests/test_health.py` du danh sach file prompt chi neu `tests/conftest.py`, vi prompt bat buoc phai co test `/health` de dat Definition of Done.
+- Prompt 02: dung `pydantic` model cho typed settings va tu parse YAML toi gian trong `src/rkaa/core/config.py` de giu dung scope file duoc phep sua.
+- Prompt 02: quy uoc env override dung prefix `RKAA_` va nesting bang `__`, vi du `RKAA_APP__TIMEZONE`.
+- Prompt 03: dung `ContextVar` de giu correlation ID va JSON formatter rieng trong `src/rkaa/core/logging.py`.
+- Prompt 03: middleware trong `src/rkaa/main.py` gan `X-Correlation-ID` cho moi request va dua correlation ID vao response header.
+- Prompt 04: chuan hoa loi API voi payload `{ error_code, message, correlation_id, details }` cho validation, not found va internal error.
+- Prompt 04: dang ky global handlers trong `src/rkaa/core/error_handlers.py` va su dung correlation ID hien tai tu logging context.
+- Prompt 05: CI duoc chuan hoa qua GitHub Actions workflow `.github/workflows/ci.yml` voi cac buoc `ruff check .`, `pytest`, `coverage run -m pytest`, `coverage report`.
+- Prompt 05: them cau hinh coverage vao `pyproject.toml`; coverage report local hien tai dat 94%.
+- Prompt 06: session lifecycle duoc dong goi trong `session_scope()` voi `commit / rollback / close` ro rang de repository layer dung lai ve sau.
+- Prompt 06: Alembic `env.py` dung `Base.metadata` va lay database URL tu cau hinh hien tai; file nay can duoc chay trong Alembic runtime context, khong import truc tiep nhu module thuong.
+- Prompt 07: model `NetworkElement` dung bang `network_elements` voi check constraint cho `technology` chi nhan `LTE`, `NR`, `NSA`.
+- Prompt 07: do `metadata` la ten reserved trong SQLAlchemy declarative, model dung attribute Python `metadata_json` nhung map vao column DB co ten `metadata`.
+- Prompt 08: repository `NetworkElementRepository` nhan `Session` tu ben ngoai va cung cap CRUD thuan ORM, khong tu quan ly transaction.
+- Prompt 08: duplicate `ne_id` duoc surfacing ngay tai `flush()` trong `create()`, nen test duplicate can expect `IntegrityError` o buoc create thay vi doi den commit.
+- Prompt 09: model `KPIDefinition` dung bang `kpi_definitions` voi check constraint cho `direction_preference` va `data_type` theo dung enum trong prompt.
+- Prompt 09: threshold cua `KPIDefinition` cho phep null, nhung neu ca `warning_threshold` va `critical_threshold` deu co gia tri thi khong duoc bang nhau.
+- Prompt 10: repository `KPIDefinitionRepository` giu pattern CRUD giong `NetworkElementRepository`, inject `Session` tu ben ngoai va de transaction cho caller.
+- Prompt 10: validation cho `KPIDefinition` duoc enforce boi DB constraint; duplicate `kpi_name`, enum sai va threshold bang nhau deu surfacing thanh `IntegrityError` tai `create()/flush()`.
+- Prompt 11: model `KPIRecord` dung bang `kpi_records` voi `DateTime(timezone=True)` cho `start_time` va `end_time`, va check constraint bat buoc `end_time > start_time`.
+- Prompt 11: uniqueness cua `KPIRecord` duoc enforce theo `(ne_id, kpi_name, start_time)`; test SQLite pass du cho viec luu tru tzinfo phu thuoc dialect.
+- Prompt 12: repository `KPIRecordRepository` cung cap `bulk_create`, query theo khoang thoi gian va `mark_as_noise`; duplicate record key surfacing thanh `IntegrityError` tai `flush()`.
+- Prompt 12: cac test repository time-series can assert tren object truoc khi dong session, vi session mac dinh cua SQLAlchemy se expire instance sau `commit()`.
+- Prompt 13: model `ImpactEvent` dung bang `impact_events` voi `source` chi nhan `manual/cli/imported`, `status` chi nhan `draft/confirmed/analyzed/cancelled`.
+- Prompt 13: `ImpactEvent` cho phep `t2 = NULL` de bieu dien ongoing event, nhung neu co `t2` thi bat buoc `t2 > t1`; `created_at/updated_at` dung server default `now()`.
+- Prompt 14: repository `ImpactEventRepository` giu CRUD thuan ORM, inject `Session` tu ben ngoai, va `list()` sap xep theo `t1` roi `id`.
+- Prompt 14: voi repository/model time-based, cac assert tren object vua update/create nen duoc thuc hien truoc khi session commit/dong de tranh `DetachedInstanceError`.
+- Prompt 15: model `ImpactAnalysis` va `KPIDelta` bam sat field trong SRS; `summary` duoc luu bang cot `JSON`, con `p_value` cho phep `NULL` vi day la thong tin phan tich co the chua duoc dien day du.
+- Prompt 15: du schema SRS ghi `uuid`, hai model moi dung khoa chinh `Integer` va foreign key tuong ung de giu nhat quan voi `ImpactEvent.id` hien tai va tranh xung dot voi cac prompt da hoan thanh.
+- Prompt 16: contract CSV KPI duoc dinh nghia bang `KPIInputRow` trong `src/rkaa/domain/data_collector/schemas.py`, dung `AwareDatetime` de bat buoc timezone cho `timestamp` va `period_end`.
+- Prompt 16: chi `ne_id` va `kpi_name` bi rang buoc khong rong theo prompt; `unit` va `quality_flag` van la truong bat buoc trong schema nhung khong them quy tac nghiep vu ngoai SRS/prompt.
+- Prompt 17: parser `parse_kpi_csv()` dung `csv.DictReader`, bo qua dong rong, fail fast neu thieu cot bat buoc, va bao loi kem so dong khi schema validation that bai.
+- Prompt 17: bo sung `parse_kpi_csv_bytes()` de tai su dung parser cho API upload ma khong can ghi file tam.
+- Prompt 18: import service dung transaction ngoai + savepoint theo batch; neu `bulk_create` loi do duplicate thi fallback insert tung dong de van giu duoc ban ghi hop le va thong ke `duplicates`.
+- Prompt 18: `unit` tu contract CSV chua duoc luu vao `KPIRecord` vi model hien tai khong co cot tuong ung; import service chi map cac truong persistence da ton tai.
+- Prompt 19: endpoint `POST /api/v1/kpi-records/import` nhan raw body `text/csv` thay vi multipart de tranh phu thuoc `python-multipart` trong moi truong hien tai, nhung van giu dung nghia upload CSV.
+- Prompt 19: loi parse CSV duoc chuyen thanh `AppError` voi `error_code = INVALID_INPUT` de tai su dung global error envelope da co.
+- Prompt 20: filter `detect_null_sentinel()` duoc dat o domain layer va tra ve `NoiseCheckResult { is_noise, noise_reason }` de cac prompt sau co the tai su dung ma khong rang buoc vao persistence.
+- Prompt 20: mac dinh xem `None`, `NaN`, chuoi rong, va cac chuoi null-like nhu `null/none/n/a/na` la `null_value`; sentinel gia tri dac thu duoc truyen tu caller va danh dau bang `sentinel_value`.
+- Prompt 21: checker `validate_value_range()` doc truc tiep `valid_min/valid_max` tu mot `KPIDefinition`-like object qua protocol toi thieu, tranh keo repository hay hardcode nguong KPI vao domain rule.
+- Prompt 21: range validation dung chung `NoiseCheckResult`; value nho hon `valid_min` tra `below_valid_min`, lon hon `valid_max` tra `above_valid_max`, con cau hinh co `valid_min > valid_max` bi fail fast bang `ValueError`.
+- Prompt 22: checker `detect_duplicate_records()` xu ly duplicate logic trong mot batch theo dung khoa `(ne_id, kpi_name, start_time)` va khong can truy cap database, de phu hop scope data-quality checker.
+- Prompt 22: duplicate checker giu lai ban ghi dau tien lam moc, va tra ve `DuplicateCheckResult` cho moi lan lap sau voi `noise_reason = duplicate_record`; checker khong tu xoa hay mutate du lieu dau vao.
+- Prompt 23: gap detector `detect_time_series_gaps()` sap xep record theo `start_time`, doc `granularity_minutes` tu `load_settings().app.granularity_minutes`, va fallback ve `15` khi config khong san sang.
+- Prompt 23: moi gap duoc bieu dien bang `GapDetectionResult { gap_start, gap_end, missing_periods, is_warning }`; `gap_start/gap_end` la mien thieu thuc te, va `is_warning = true` khi tong do dai gap vuot `2` gio theo prompt.
+- Prompt 24: counter reset detector `detect_counter_resets()` chi ap dung cho `KPIDefinition.data_type = counter`; voi KPI thong thuong (`kpi`) detector tra rong de tranh bao gia cho chi so phan tram.
+- Prompt 24: detector sap xep record theo `start_time`, xem moi lan `current_value < previous_value` la `counter_reset`, va tra ve `CounterResetResult { record_index, timestamp, previous_value, current_value, reason }` ma khong mutate du lieu dau vao.
+- Prompt 25: IQR filter `detect_iqr_outliers()` la checker thuần domain theo batch, ho tro `multiplier` cau hinh duoc va mac dinh `1.5`; sample size duoi `4` hoac `IQR = 0` se tra rong de tranh bao dong vo nghia.
+- Prompt 25: moi outlier duoc tra ve bang `IQROutlierResult { record_index, value, score, reason }`, trong do `score` la muc vuot fence chia cho `IQR` va `reason = iqr_outlier`; filter khong xoa hay mutate du lieu dau vao.
+- Prompt 26: service `build_data_quality_report()` tong hop ket qua tu null/sentinel, range, duplicate, gap, counter reset va IQR filter; `invalid_count` chi tinh cac ban ghi null-sentinel hoac ngoai range, con `noise_ratio` tinh tren hop chi muc noisy duy nhat tren tong so record.
+- Prompt 26: API `POST /api/v1/data-quality/report` nhan payload JSON co `records`, `kpi_definition`, `granularity_minutes`, `iqr_multiplier`, `sentinel_values`, va tra ve summary typed de FastAPI tu sinh API docs; sau prompt nay phase `03-data-quality` duoc xem la hoan tat.
+- Prompt 27: `MaintenanceWindow` duoc giu o muc model/repository toi thieu giong pattern `ImpactEvent`, gom cac field `id, ne_id, start_time, end_time, event_type, description, created_by` ma chua them rang buoc nghiep vu bo sung ngoai prompt.
+- Prompt 27: bo sung migration `20260708_000006_create_maintenance_windows.py` va repository CRUD `MaintenanceWindowRepository`; `list()` sap xep theo `start_time, id`, con not-found dung thong diep `"Maintenance window '<id>' not found."`.
+- Prompt 28: filter `mark_records_in_maintenance()` duoc dat o domain layer, nhan records va maintenance windows qua protocol nhe, va chi tra ve danh sach record duoc danh dau thay vi mutate hay xoa du lieu.
+- Prompt 28: overlap maintenance duoc xac dinh theo khoang mo `record.start_time < window.end_time` va `record.end_time > window.start_time`; hai mien chi cham bien nhau thi khong xem la overlap, giup baseline sau nay chi loai dung cac period giao nhau thuc su.
+- Prompt 29: bo sung `app.day_periods` vao typed settings va `config.yaml` de classifier doc khung gio tu YAML thay vi hardcode; moi period la `start/end` kieu `time` va ho tro env override nested nhu `RKAA_APP__DAY_PERIODS__BUSY__START`.
+- Prompt 29: `classify_day_period()` phan loai `busy/off_peak/transition` bang local time cua timestamp dau vao; range qua nua dem duoc xu ly bang dieu kien `current >= start or current < end`, va cau hinh phai map moi timestamp vao dung mot period duy nhat.
+- Prompt 48: detector `detect_threshold_anomaly()` duoc dat o domain layer va tra ve `ThresholdDetectionResult { anomaly_flag }` voi cac muc `normal/warning/critical/not_evaluated`.
+- Prompt 48: voi `context_dependent`, detector suy ra chieu "xau di" tu thu tu `warning_threshold` va `critical_threshold`; neu `critical > warning` thi KPI vuot nguong cao hon la xau, nguoc lai KPI rot xuong duoi nguong thap hon la xau.
+- Prompt 49: detector `detect_zscore_anomaly()` duoc dat o domain layer va tra ve `ZScoreDetectionResult { z_score, threshold, anomaly_flag, is_anomalous }`, trong do `anomaly_flag` la `anomalous` hoac `normal`.
+- Prompt 49: nguong Z-score duoc doc tu `app.anomaly_zscore_threshold` trong config, co fallback `3.0` khi config khong san sang; neu `std_value = 0` thi gia tri bang mean cho `z_score = 0`, con gia tri khac mean duoc xem la `z_score = inf`.
+- Prompt 50: detector `detect_three_sigma_anomaly()` duoc dat o domain layer va tra ve `ThreeSigmaDetectionResult { lower_bound, upper_bound, anomaly_flag, is_anomalous }` theo quy tac `mean +/- 3 * std`.
+- Prompt 50: voi `std_value = 0`, detector xem `value == mean_value` la `normal`, con moi gia tri khac mean la `anomalous`; voi `std_value > 0`, gia tri cham bien `lower_bound` hoac `upper_bound` van duoc xem la anomalous.
+- Prompt 51: them `aggregate_anomaly_results()` o domain layer de hop nhat ket qua threshold, Z-score va three-sigma thanh `AggregatedAnomalyResult { is_anomaly, severity, reasons }`.
+- Prompt 51: thu tu severity duoc co dinh la `critical > warning > anomalous > normal > not_evaluated`; `reasons` chi gom cac detector thuc su bao bat thuong, va khi khong co detector nao hoac chi co `not_evaluated` thi ket qua tong hop la `is_anomaly = false`, `severity = not_evaluated`.
+- Prompt 52: `analyze_and_store_impact()` tich hop anomaly evaluation bang cach danh gia `post_mean` tren threshold cua KPI va, neu co `pre_window`, dung thong ke `pre_window` lam baseline tam thoi cho Z-score va three-sigma; khong thay doi public API cua service.
+- Prompt 52: `KPIDelta` duoc mo rong voi `severity` va `anomaly_reasons`; `anomaly_flag` duoc chuan hoa thanh `anomalous` khi ket qua tong hop bao anomaly, nguoc lai giu `normal` hoac `not_evaluated`, va cac truong nay duoc dua vao ca persistence lẫn response API/summary.
+- Prompt 53: `calculate_linear_trend()` duoc dat o domain layer va tra ve `LinearTrendResult { slope, intercept, r_squared }` cho chuoi KPI da sap xep theo `start_time`.
+- Prompt 53: hoi quy tuyen tinh dung chi so mau `0..n-1` lam truc `x` sau khi sort theo `start_time`; voi chuoi hang so hoac chi co 1 diem, ket qua mac dinh la `slope = 0`, `r_squared = 1`.
+- Prompt 54: `classify_trend()` duoc dat o domain layer va tra ve `TrendClassificationResult { classification }` voi cac muc `improving`, `degrading`, `stable`, `unclear`.
+- Prompt 54: quy tac phan loai la `r_squared < 0.5 => unclear`; neu `slope = 0` hoac `direction_preference = context_dependent` thi tra `stable`; con lai dung dau cua `slope` ket hop `direction_preference` de suy ra `improving/degrading`.
+- Prompt 55: `decompose_stl()` duoc dat o domain layer va tra ve `STLDecompositionResult { timestamps, observed, trend, seasonal, residual }` theo decomposition additive co ban, khong du bao va khong change point.
+- Prompt 55: decomposition dung `season_length` do caller truyen vao, uoc luong `trend` bang moving average theo window mua vu, suy `seasonal` tu gia tri detrended theo vi tri trong chu ky, roi tinh `residual = observed - trend - seasonal`; bat buoc co it nhat 1 chu ky day du va `season_length > 1`.
+- Prompt 56: `KnowledgeEntry` duoc tao thanh bang `knowledge_entries` voi khoa chinh `id` noi bo de phu hop cac prompt repository/API sau nay dung duong dan theo `/{id}`.
+- Prompt 56: cac field danh sach `common_causes_increase`, `common_causes_decrease`, `related_kpis` duoc luu bang `JSON`; model rang buoc `version > 0` va unique theo cap `(kpi_name, version)` de ho tro versioning ve sau ma khong khoa cung `status` o muc model.
+- Prompt 57: `KnowledgeEntryRepository` cung cap `create_version`, `get_latest`, `get_approved`, `list_versions`, `search`; `get_latest`/`get_approved` chon ban ghi co `version` cao nhat, fallback tie-break bang `id` giam dan.
+- Prompt 57: `list_versions(kpi_name)` sap xep tang dan theo `version`; `search(query)` hien tai la filter Python case-insensitive tren `kpi_name`, meaning, causes, related KPI, `created_by`, `status`, va tra rong khi query rong/chi co khoang trang.
+- Prompt 58: `create_version()` duoc nang cap de tu dong cap `version` ke tiep theo `kpi_name` ngay trong repository; ban dau la `1`, cac lan sau la `max(version) + 1`, khong tin vao `version` caller truyen vao.
+- Prompt 58: versioning khong update de ban cu; moi lan sua phai tao `KnowledgeEntry` moi, giu nguyen noi dung va `status` cua cac version truoc do, va `list_versions()` van la nguon su that de quan sat lich su tang dan.
+- Prompt 59: workflow knowledge duoc chot voi `create_version() -> draft`, `approve(id) -> approved`, `deprecate(id) -> deprecated`; `get_approved()` la diem doc duy nhat de ben report/enricher lay ban duoc phe duyet.
+- Prompt 59: khi approve mot version, moi version `approved` khac cung `kpi_name` se bi doi thanh `deprecated`; version da `deprecated` khong duoc approve lai de tranh quay nguoc lich su trang thai.
+- Prompt 60: them router `knowledge` voi 4 endpoint `POST /api/v1/knowledge`, `PUT /api/v1/knowledge/{id}`, `POST /api/v1/knowledge/{id}/approve`, `GET /api/v1/knowledge/by-kpi/{kpi_name}`; response tra ve day du metadata version/status cua `KnowledgeEntry`.
+- Prompt 60: `PUT /api/v1/knowledge/{id}` khong mutate ban cu ma doc entry hien tai theo `id`, giu nguyen `kpi_name`, roi tao `KnowledgeEntry` moi qua `create_version()`; approve deprecated entry duoc map thanh `AppError(error_code="INVALID_INPUT")`, con `GET /by-kpi` doc tu `get_approved()` va chua tich hop report.
+- Prompt 61: `KPIDelta` duoc mo rong voi `knowledge_explanation`; impact analysis doc `KnowledgeEntryRepository.get_approved()` de chen `meaning_increase` khi KPI tang va `meaning_decrease` khi KPI giam.
+- Prompt 61: neu KPI khong co approved knowledge entry thi explanation mac dinh la `Chua co tri thuc - can cap nhat`; neu delta stable thi ghi `Khong co thay doi tang/giam`.
+- Prompt 62: them typed report data model o domain layer gom `ReportData`, `ReportImpactInfo`, `ReportKPIDelta`, `ReportAnomaly`, va `ReportKnowledgeExplanation`.
+- Prompt 62: `ReportData` chua dung cac section bat buoc `executive_summary`, `impact_info`, `kpi_deltas`, `anomalies`, `knowledge_explanations`, `overall_assessment` va chi cung cap `to_dict()`, chua render HTML/API.
+- Prompt 63: them `render_impact_report_html(report)` o domain layer de sinh standalone HTML gom Executive Summary, Impact Information, KPI Delta, Anomalies, Knowledge Explanation va Overall Assessment.
+- Prompt 63: HTML renderer dung `html.escape` cho toan bo noi dung dong, co style inline toi thieu, va chua them chart theo dung gioi han prompt.
+- Prompt 64: them `timeseries_chart` o domain layer voi typed input `TimeSeriesChartData { actual, baseline, t1, t2, anomaly_markers }` va renderer `render_timeseries_chart_svg()`.
+- Prompt 64: chart duoc render thanh SVG standalone gom duong actual, baseline, vach t1/t2 va anomaly markers; chua tich hop vao HTML theo dung gioi han prompt.
+- Prompt 65: `render_impact_report_html()` nhan optional `chart_svgs` va chen chung vao section `Time Series Chart` neu caller cung cap chart da render.
+- Prompt 65: tich hop HTML chi embed SVG da co, khong thay doi thuat toan chart va khong them Excel/PDF.
+- Prompt 66: them `render_excel_impact_report()` o domain layer de sinh `.xlsx` bytes bang stdlib, khong them dependency Excel moi.
+- Prompt 66: workbook Excel gom dung 5 sheet `Summary`, `KPI Delta`, `Anomalies`, `Raw Data`, `Knowledge`; Raw Data nhan rows tuy chon va khong tao API.

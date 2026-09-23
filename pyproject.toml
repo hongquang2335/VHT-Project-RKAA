@@ -7,14 +7,11 @@ name = "rkaa"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-  "numpy>=1.23",
   "duckdb==1.4.4",
   "pandas>=2.0",
   "matplotlib>=3.8",
   "python-dotenv>=1.0",
   "PyYAML>=6.0",
-  "statsmodels>=0.14",
-  "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
