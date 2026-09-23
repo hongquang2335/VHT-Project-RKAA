@@ -1,0 +1,23 @@
+# FR-401/402 mở rộng với semantics FR-301/302 nhưng theo chu kỳ thời gian.
+statistical:
+  alpha: 0.05
+  sigma_threshold: 3.0
+  minimum_samples_per_group: 3
+
+fr401:
+  # Latest clean 24h cycle, so sánh với mean daily cycle lịch sử
+  # cộng dồn trên các khoảng (T-72h, T-24h], (T-144h, T-24h], (T-288h, T-24h].
+  current_window_hours: 24
+  comparison_lags_hours: [72, 144, 288]
+
+fr402:
+  # Latest rolling 7-day cycle so với 7 ngày liền trước.
+  current_window_days: 7
+  previous_week:
+    enabled: true
+
+  # Có code sẵn nhưng tắt mặc định vì demo 1 tháng không đủ 60 ngày cho
+  # latest-30d vs previous-30d. Bật khi production có đủ history.
+  previous_month:
+    enabled: false
+    window_days: 30

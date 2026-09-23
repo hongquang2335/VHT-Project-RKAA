@@ -54,7 +54,7 @@ def _direction_preferences(kind: str, path: Path) -> dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="FR-403/404: STL trend trên từng KPI của valid NE-Cell pair",
+        description="FR-403/404: STL trend + suy luận tốt/xấu KPI % trên valid NE-Cell pair",
     )
     parser.add_argument("--input", default="tmp/phase3/baseline_ready_kpi.csv")
     parser.add_argument("--granularity-minutes", type=int, default=5)
@@ -102,9 +102,47 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     pair_path = output_dir / "fr4xx_pair_validity.csv"
     trend_path = output_dir / "fr403_fr404_trend_summary.csv"
+    fr404_path = output_dir / "fr404_percent_direction_summary.csv"
     components_path = output_dir / "fr403_stl_components.pkl"
     result.pair_validity_df.to_csv(pair_path, index=False, encoding="utf-8-sig")
     result.trend_df.to_csv(trend_path, index=False, encoding="utf-8-sig")
+
+    # FR-404 có artifact riêng để audit thống kê KPI % và semantic tự suy luận.
+    fr404_columns = [
+        "ne_id",
+        "cell_id",
+        "kpi_name",
+        "unit",
+        "analysis_window_days",
+        "analysis_start",
+        "analysis_end",
+        "series_eligible",
+        "eligibility_reason",
+        "mean",
+        "p05",
+        "p95",
+        "fr404_nearest_edge",
+        "fr404_edge_distance",
+        "fr404_inferred_direction",
+        "fr404_inference_confidence",
+        "configured_direction_preference",
+        "direction_preference",
+        "direction_preference_source",
+        "trend_slope_per_day",
+        "r2",
+        "confident",
+        "trend_label",
+    ]
+    fr404 = result.trend_df[
+        result.trend_df.get("fr404_applicable", pd.Series(False, index=result.trend_df.index))
+        .fillna(False)
+        .astype(bool)
+    ].copy()
+    for column in fr404_columns:
+        if column not in fr404.columns:
+            fr404[column] = pd.NA
+    fr404[fr404_columns].to_csv(fr404_path, index=False, encoding="utf-8-sig")
+
     # Internal hand-off cho FR-405; pickle tránh ghi hàng trăm nghìn dòng CSV.
     result.components_df.to_pickle(components_path)
 
@@ -122,14 +160,21 @@ def main() -> None:
             else 0
         ),
         "components_rows": len(result.components_df),
+        "fr404_percent_series": len(fr404),
+        "fr404_auto_inferred_series": (
+            int((fr404["direction_preference_source"] == "fr404_percent_statistics").sum())
+            if not fr404.empty and "direction_preference_source" in fr404.columns
+            else 0
+        ),
     }
     (output_dir / "SUMMARY.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print("Pair validity:", pair_path)
-    print("Trend summary:", trend_path)
-    print("FR-405 hand-off:", components_path)
+    print("FR-403/404 trend summary:", trend_path)
+    print("FR-404 percent summary:", fr404_path)
+    print("FR-405 change-point hand-off:", components_path)
 
     if all(chart_values):
         chart_path = write_trend_png(

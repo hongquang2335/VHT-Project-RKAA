@@ -1,5 +1,7 @@
 # Cấu hình chung FR-403/404/405. Không chứa threshold riêng cho từng NE/Cell.
 trend:
+  # FR-403/404: phân tích trên cửa sổ lịch sử gần nhất, mặc định 30 ngày theo SRS.
+  analysis_window_days: 30
   minimum_clean_days: 14
   minimum_pair_completeness: 0.70
   minimum_series_completeness: 0.70
@@ -16,3 +18,5 @@ change_point:
   detect_variance: true
   # Lưới 2 periods giữ sai số định vị <= 1 period nhưng giảm chi phí demo.
   search_step_points: 2
+  # SRS FR-405: vị trí change point sai số tối đa 2 granularity periods.
+  localization_tolerance_periods: 2

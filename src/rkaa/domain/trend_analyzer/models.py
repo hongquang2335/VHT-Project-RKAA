@@ -10,6 +10,7 @@ import pandas as pd
 @dataclass(frozen=True, slots=True)
 class TrendAnalysisConfig:
     granularity_minutes: int = 60
+    analysis_window_days: int = 30
     minimum_clean_days: int = 14
     minimum_pair_completeness: float = 0.70
     minimum_series_completeness: float = 0.70

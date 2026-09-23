@@ -56,6 +56,11 @@ def main() -> None:
             else 0
         ),
         "change_points": len(result),
+        "engineer_review_alerts": (
+            int(result["alert_required"].fillna(False).astype(bool).sum())
+            if not result.empty and "alert_required" in result.columns
+            else 0
+        ),
         "series_with_change_points": (
             int(result[["ne_id", "cell_id", "kpi_name"]].drop_duplicates().shape[0])
             if not result.empty

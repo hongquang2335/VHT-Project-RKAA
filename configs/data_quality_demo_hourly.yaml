@@ -1,0 +1,30 @@
+# Demo-only FR-203 profile for sample_kpi_counter_1month CSV.
+# DO NOT use this file as the production authority. The production pipeline
+# continues to use configs/data_quality.yaml unchanged.
+normalization:
+  enabled: true
+  assume_naive_timezone: UTC
+
+duplicate_detection:
+  enabled: true
+
+gap_detection:
+  enabled: true
+  # CSV demo is hourly. A 60-minute step is normal, not a gap.
+  expected_interval_minutes: 60
+  warning_threshold_minutes: 120
+
+range_validation:
+  enabled: true
+  counter_min_value: 0
+  rules_file: configs/data_cleaning.yaml
+  rules_path: filters.custom_rule.rules
+
+local_spike:
+  # Fast demo path disables the expensive rolling-MAD detector. Production core
+  # and configs/data_quality.yaml are unchanged. Use core FR-203 when this check
+  # itself needs to be demonstrated/validated.
+  enabled: false
+  window_samples: 24
+  min_samples: 6
+  robust_z_threshold: 6.0

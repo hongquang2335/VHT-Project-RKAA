@@ -353,3 +353,83 @@ python scripts/run_changepoint_once.py \
 
 Các summary nhỏ được lưu ở `tmp/fr403/` và `tmp/fr405/`. Point-level STL chỉ dùng
 làm hand-off nội bộ cho FR-405, tránh tạo nhiều bản CSV lớn không cần thiết.
+
+## FR-303 + mở rộng FR-401/FR-402 theo chu kỳ
+
+`configs/kpi_thresholds.yaml` là authority cho warning/critical threshold theo KPI.
+Threshold không nằm trong CSV adapter nên cùng một rule được dùng cho cả MinIO production
+và CSV demo. Mỗi chiều `increase`/`decrease` có thể dùng `mode: absolute` hoặc
+`mode: percent`. Giá trị `null` nghĩa là operator chưa cấu hình threshold; khi đó
+3-sigma và statistical tests vẫn chạy nhưng threshold detector không tự suy đoán.
+
+`configs/cyclic_analysis.yaml` định nghĩa protocol chu kỳ dùng chung:
+
+- FR-401: latest rolling 24h so với cùng cửa sổ `24h`, `72h`, `168h` trước.
+- FR-402: latest rolling 7 ngày so với 7 ngày liền trước.
+- FR-402 month-over-month đã có code nhưng `previous_month.enabled: false` mặc định;
+  bật khi history đủ ít nhất hai cửa sổ 30 ngày.
+
+FR-401/402 giữ baseline/profile cũ và bổ sung output comparison với các trường FR-301/302:
+mean/median/std/p05/p95 hai cửa sổ, delta tuyệt đối/%; Welch t-test, Mann-Whitney U,
+reference z-score/3-sigma, FR-303 threshold severity và `anomaly_flag`.
+Mọi phép tính được tách theo `NE + Cell + KPI`; FR-401 còn tách temporal profile,
+FR-402 sinh cả scope `DAY_TYPE` (WEEKDAY/WEEKEND) và `DAY_OF_WEEK`.
+
+Ví dụ production 5 phút:
+
+```bash
+python scripts/run_temporal_analysis_once.py \
+  --input tmp/phase3/baseline_ready_kpi.csv \
+  --granularity-minutes 5
+
+python scripts/run_weekly_analysis_once.py \
+  --input tmp/fr401/profiled_kpi.csv
+```
+
+Demo CSV hourly dùng cùng core, chỉ đổi input/granularity:
+
+```bash
+python scripts/run_temporal_analysis_once.py \
+  --input tmp/demo_cleaned.csv \
+  --granularity-minutes 60
+```
+
+## CSV demo fast path (hourly sample)
+
+The CSV adapter is a demo-only input path. Production MinIO collection and
+`configs/data_quality.yaml` remain unchanged.
+
+For the hourly sample, emit only KPI rows for the analysis chain so raw counters
+are not unnecessarily passed through FR-203/FR-201/FR-401/FR-402:
+
+```powershell
+python scripts/run_csv_collection_once.py `
+  --input "sample_kpi_counter_1month(4).csv" `
+  --config configs/csv_demo_adapter.yaml `
+  --kpi-only `
+  --output tmp/demo/kpi_analysis_input.csv
+
+python scripts/run_csv_demo_quality_once.py `
+  --input tmp/demo/kpi_analysis_input.csv `
+  --config configs/data_quality_demo_hourly.yaml `
+  --quality-output tmp/demo/fr203/quality_checked_kpi.csv `
+  --observation-output tmp/demo/phase3/observation_kpi.csv `
+  --issues-output tmp/demo/fr203/data_quality_issues.csv `
+  --summary-output tmp/demo/fr203/data_quality_summary.csv
+
+python scripts/run_cleaning_once.py `
+  --input tmp/demo/phase3/observation_kpi.csv `
+  --config configs/data_cleaning.yaml `
+  --metadata-db tmp/rkaa_metadata.db `
+  --cleaned-output tmp/demo/phase3/baseline_ready_kpi.csv `
+  --excluded-output tmp/demo/phase3/baseline_excluded_kpi.csv
+```
+
+`--kpi-only` affects only this CSV demo entrypoint. Omitting it preserves the
+previous adapter behavior and emits both KPI and counter rows. The fast path intentionally
+does not use `--discover-all`: only the KPI set declared/derived in
+`configs/csv_demo_adapter.yaml` is analyzed. `--discover-all` remains available for schema
+exploration, but it expands the workload with informational metrics. The demo quality runner
+is vectorized and intentionally disables local-spike rolling MAD; it does not replace or
+modify core FR-203. Production continues to use `scripts/run_data_quality_once.py` and
+`configs/data_quality.yaml`.

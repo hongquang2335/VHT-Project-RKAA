@@ -9,15 +9,25 @@ from rkaa.domain.temporal_analyzer.models import (
     WeeklyCycleAnalysisResult,
 )
 from rkaa.domain.temporal_analyzer.service import TemporalAnalyzer
+from rkaa.domain.temporal_analyzer.cycle_comparison import (
+    CycleComparisonAnalyzer,
+    DailyCycleComparisonConfig,
+    StatisticalComparisonConfig,
+    WeeklyCycleComparisonConfig,
+)
 from rkaa.domain.temporal_analyzer.weekly_cycle import WeeklyCycleAnalyzer
 
 __all__ = [
+    "CycleComparisonAnalyzer",
+    "DailyCycleComparisonConfig",
     "DayType",
     "ProfileWindow",
     "TemporalAnalysisResult",
     "TemporalAnalyzer",
     "TemporalProfile",
+    "StatisticalComparisonConfig",
     "TemporalProfileConfig",
     "WeeklyCycleAnalysisResult",
+    "WeeklyCycleComparisonConfig",
     "WeeklyCycleAnalyzer",
 ]

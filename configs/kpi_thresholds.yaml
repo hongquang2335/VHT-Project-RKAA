@@ -1,0 +1,57 @@
+# FR-303 — Ngưỡng cảnh báo KPI dùng chung cho production và demo.
+# Không tune theo CSV demo. Operator chỉ cần sửa YAML, core không đổi.
+#
+# mode=absolute: độ lớn thay đổi theo đơn vị gốc (với KPI % là percentage points).
+# mode=percent: 100 * (current_mean-reference_mean)/reference_mean.
+#
+# warning/critical = null nghĩa là chưa cấu hình ngưỡng cho chiều đó. Khi chưa
+# cấu hình, FR-401/402 vẫn phát hiện 3-sigma và vẫn trả statistical test.
+
+kpis:
+  "ENDC SSR VTNET IniAtt (%)":
+    enabled: true
+    direction_preference: higher_is_better
+    increase: {mode: absolute, warning: null, critical: null}
+    decrease: {mode: absolute, warning: null, critical: null}
+
+  "EN-DC CSSR (%)":
+    enabled: true
+    direction_preference: higher_is_better
+    increase: {mode: absolute, warning: null, critical: null}
+    decrease: {mode: absolute, warning: null, critical: null}
+
+  "ENDC CDR VTNET (%)":
+    enabled: true
+    direction_preference: lower_is_better
+    increase: {mode: absolute, warning: null, critical: null}
+    decrease: {mode: absolute, warning: null, critical: null}
+
+  "NR RASR VTNET (%)":
+    enabled: true
+    direction_preference: higher_is_better
+    increase: {mode: absolute, warning: null, critical: null}
+    decrease: {mode: absolute, warning: null, critical: null}
+
+  "PSCell Change Intra-SgNB SR VTNET (%)":
+    enabled: true
+    direction_preference: higher_is_better
+    increase: {mode: absolute, warning: null, critical: null}
+    decrease: {mode: absolute, warning: null, critical: null}
+
+  "PSCell Change Inter-SgNB SR VTNET (%)":
+    enabled: true
+    direction_preference: higher_is_better
+    increase: {mode: absolute, warning: null, critical: null}
+    decrease: {mode: absolute, warning: null, critical: null}
+
+  "Max RRC Connected NR ENDC User (UE)":
+    enabled: true
+    direction_preference: informational
+    increase: {mode: percent, warning: null, critical: null}
+    decrease: {mode: percent, warning: null, critical: null}
+
+  "NSA PS Traffic (GBytes)":
+    enabled: true
+    direction_preference: informational
+    increase: {mode: percent, warning: null, critical: null}
+    decrease: {mode: percent, warning: null, critical: null}

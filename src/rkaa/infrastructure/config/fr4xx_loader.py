@@ -42,6 +42,7 @@ def load_fr4xx_config(
     seasonal_periods = max(2, int(round(cycle_minutes / granularity_minutes)))
     trend = TrendAnalysisConfig(
         granularity_minutes=granularity_minutes,
+        analysis_window_days=int(trend_raw.get("analysis_window_days", 30)),
         minimum_clean_days=int(trend_raw.get("minimum_clean_days", 14)),
         minimum_pair_completeness=float(
             trend_raw.get("minimum_pair_completeness", 0.70)
@@ -69,5 +70,8 @@ def load_fr4xx_config(
         minimum_segment_points=minimum_segment_points,
         detect_variance=bool(cp_raw.get("detect_variance", True)),
         search_step_points=int(cp_raw.get("search_step_points", 2)),
+        localization_tolerance_periods=int(
+            cp_raw.get("localization_tolerance_periods", 2)
+        ),
     )
     return FR4xxConfig(trend=trend, change_point=change_point)

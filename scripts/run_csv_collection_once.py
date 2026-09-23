@@ -51,6 +51,14 @@ def main() -> None:
             "được coi là counter, còn lại là KPI informational."
         ),
     )
+    parser.add_argument(
+        "--kpi-only",
+        action="store_true",
+        help=(
+            "Demo analysis mode: chỉ emit KPI (không emit raw counter) để FR-203/"
+            "FR-201/FR-401/FR-402 không phải xử lý hàng triệu counter không dùng."
+        ),
+    )
     parser.add_argument("--output", default="tmp/csv_demo_kpi_long.csv")
     args = parser.parse_args()
 
@@ -103,8 +111,14 @@ def main() -> None:
         )
 
     wide_df = apply_derived_metrics(wide_df, resolution)
+    resolved_mapping = resolution.normalizer_mapping()
+    emission_mapping = (
+        [item for item in resolved_mapping if not item.is_counter]
+        if args.kpi_only
+        else resolved_mapping
+    )
     normalizer = MinioKPINormalizer(
-        kpi_mapping=resolution.normalizer_mapping(),
+        kpi_mapping=emission_mapping,
         datetime_col=config.source.datetime_col,
         ne_col=config.source.ne_col,
         cellname_col=config.source.cellname_col,
@@ -115,14 +129,19 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     long_df.to_csv(output_path, index=False, encoding="utf-8-sig")
 
-    all_mapping = resolution.normalizer_mapping()
+    all_mapping = resolved_mapping
     kpi_count = sum(not item.is_counter for item in all_mapping)
     counter_count = sum(item.is_counter for item in all_mapping)
+    emitted_kpi_count = sum(not item.is_counter for item in emission_mapping)
+    emitted_counter_count = sum(item.is_counter for item in emission_mapping)
     print("CSV Adapter Summary")
     print("Input:", input_path)
     print("Available source columns:", len(available_columns))
     print("Resolved KPI definitions:", kpi_count)
     print("Resolved counter definitions:", counter_count)
+    print("KPI-only analysis mode:", "ON" if args.kpi_only else "OFF")
+    print("Emitted KPI definitions:", emitted_kpi_count)
+    print("Emitted counter definitions:", emitted_counter_count)
     print("Missing optional canonical metrics:", list(resolution.missing_optional))
     print("Auto-discovered metrics:", len(resolution.auto_discovered))
     print("Wide rows selected:", len(wide_df))

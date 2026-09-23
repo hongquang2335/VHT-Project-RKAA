@@ -1,4 +1,4 @@
-"""FR-405 (SRS ghi trùng FR-404): PELT change-point theo từng NE + Cell + KPI."""
+"""FR-405: PELT change-point theo từng NE + Cell + KPI."""
 
 from __future__ import annotations
 
@@ -9,12 +9,33 @@ import numpy as np
 import pandas as pd
 
 
+_CHANGE_POINT_COLUMNS = [
+    "ne_id",
+    "cell_id",
+    "kpi_name",
+    "algorithm",
+    "change_index",
+    "change_timestamp",
+    "change_type",
+    "level_before",
+    "level_after",
+    "level_delta",
+    "level_delta_percent",
+    "variance_before",
+    "variance_after",
+    "variance_ratio",
+    "localization_tolerance_periods",
+    "alert_required",
+    "review_status",
+]
+
 @dataclass(frozen=True, slots=True)
 class ChangePointConfig:
     penalty_scale: float = 8.0
     minimum_segment_points: int = 12
     detect_variance: bool = True
     search_step_points: int = 2
+    localization_tolerance_periods: int = 2
 
 
 class ChangePointDetector:
@@ -32,6 +53,12 @@ class ChangePointDetector:
             raise ValueError("minimum_segment_points phải >= 2")
         if self.config.search_step_points < 1:
             raise ValueError("search_step_points phải >= 1")
+        if self.config.localization_tolerance_periods < 1:
+            raise ValueError("localization_tolerance_periods phải >= 1")
+        if self.config.search_step_points > self.config.localization_tolerance_periods:
+            raise ValueError(
+                "search_step_points vượt localization_tolerance_periods của FR-405"
+            )
 
     @staticmethod
     def _standardize(values: np.ndarray) -> np.ndarray:
@@ -163,27 +190,49 @@ class ChangePointDetector:
                 after = trend[index:right_end]
                 before_resid = residual[left_start:index]
                 after_resid = residual[index:right_end]
+                level_before = float(np.mean(before)) if len(before) else math.nan
+                level_after = float(np.mean(after)) if len(after) else math.nan
+                level_delta = (
+                    level_after - level_before
+                    if math.isfinite(level_before) and math.isfinite(level_after)
+                    else math.nan
+                )
+                level_delta_percent = math.nan
+                if math.isfinite(level_delta) and abs(level_before) > 1e-12:
+                    level_delta_percent = level_delta / abs(level_before) * 100.0
+
+                variance_before = (
+                    float(np.var(before_resid)) if len(before_resid) else math.nan
+                )
+                variance_after = (
+                    float(np.var(after_resid)) if len(after_resid) else math.nan
+                )
+                variance_ratio = math.nan
+                if math.isfinite(variance_before) and math.isfinite(variance_after):
+                    if variance_before > 1e-12:
+                        variance_ratio = variance_after / variance_before
+                    elif variance_after <= 1e-12:
+                        variance_ratio = 1.0
+
                 rows.append(
                     {
                         "ne_id": ne_id,
                         "cell_id": cell_id,
                         "kpi_name": kpi_name,
+                        "algorithm": "PELT",
                         "change_index": index,
                         "change_timestamp": timestamps.iloc[index],
                         "change_type": "+".join(sorted(kinds)),
-                        "level_before": float(np.mean(before)) if len(before) else math.nan,
-                        "level_after": float(np.mean(after)) if len(after) else math.nan,
-                        "level_delta": (
-                            float(np.mean(after) - np.mean(before))
-                            if len(before) and len(after)
-                            else math.nan
-                        ),
-                        "variance_before": (
-                            float(np.var(before_resid)) if len(before_resid) else math.nan
-                        ),
-                        "variance_after": (
-                            float(np.var(after_resid)) if len(after_resid) else math.nan
-                        ),
+                        "level_before": level_before,
+                        "level_after": level_after,
+                        "level_delta": level_delta,
+                        "level_delta_percent": level_delta_percent,
+                        "variance_before": variance_before,
+                        "variance_after": variance_after,
+                        "variance_ratio": variance_ratio,
+                        "localization_tolerance_periods": self.config.localization_tolerance_periods,
+                        "alert_required": True,
+                        "review_status": "ENGINEER_REVIEW_REQUIRED",
                     }
                 )
-        return pd.DataFrame(rows)
+        return pd.DataFrame(rows, columns=_CHANGE_POINT_COLUMNS)

@@ -52,3 +52,34 @@ def test_pelt_can_flag_residual_variance_change() -> None:
     variance = result[result["change_type"].str.contains("VARIANCE")]
     assert not variance.empty
     assert int((variance["change_index"] - 160).abs().min()) <= 2
+
+
+def test_fr405_change_point_rows_are_engineer_review_alerts() -> None:
+    values = np.r_[np.zeros(120), np.ones(120) * 5.0]
+    detector = ChangePointDetector(
+        ChangePointConfig(
+            penalty_scale=4.0,
+            minimum_segment_points=12,
+            detect_variance=False,
+            search_step_points=2,
+            localization_tolerance_periods=2,
+        )
+    )
+    result = detector.detect(_components(values))
+    assert not result.empty
+    assert set(result["algorithm"]) == {"PELT"}
+    assert result["alert_required"].all()
+    assert set(result["review_status"]) == {"ENGINEER_REVIEW_REQUIRED"}
+    assert (result["localization_tolerance_periods"] == 2).all()
+
+
+def test_fr405_empty_result_keeps_output_schema() -> None:
+    detector = ChangePointDetector(ChangePointConfig(detect_variance=False))
+    result = detector.detect(_components(np.zeros(240)))
+    assert result.empty
+    assert {
+        "change_timestamp",
+        "change_type",
+        "alert_required",
+        "review_status",
+    }.issubset(result.columns)
