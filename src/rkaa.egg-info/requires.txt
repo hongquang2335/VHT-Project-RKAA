@@ -1,0 +1,10 @@
+duckdb==1.4.4
+pandas>=2.0
+matplotlib>=3.8
+python-dotenv>=1.0
+PyYAML>=6.0
+statsmodels>=0.14
+
+[dev]
+pytest>=8.0
+ruff>=0.6

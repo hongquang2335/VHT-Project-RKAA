@@ -1,0 +1,163 @@
+# Adapter profile cho sample_kpi_counter_1month(4).csv.
+# Core RKAA chỉ nhận long-format canonical; mọi khác biệt tên cột của nguồn nằm ở đây.
+source:
+  datetime_col: "Datetime"
+  ne_col: "NE Name"
+  cellname_col: "Cellname"
+  granularity_minutes: 60
+  dayfirst: true
+  encoding: "utf-8-sig"
+  delimiter: ","
+  metadata_columns:
+    - "No"
+    - "Site"
+    - "Cell"
+
+metrics:
+  # source_candidates cho phép nhiều vendor/file đặt tên khác nhau nhưng cùng semantic.
+  # Không đưa các KPI khác semantic vào cùng một alias list.
+  kpis:
+    - canonical_name: "ENDC SSR VTNET IniAtt (%)"
+      source_candidates:
+        - "ENDC SSR  IniAtt (%)"
+        - "ENDC SSR IniAtt (%)"
+        - "ENDC SSR VTNET IniAtt (%)"
+      unit: "%"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "ENDC CDR VTNET (%)"
+      source_candidates:
+        - "ENDC CDR  (%)"
+        - "ENDC CDR (%)"
+        - "ENDC CDR VTNET (%)"
+      unit: "%"
+      direction_preference: "lower_is_better"
+
+    # Xác nhận nghiệp vụ demo: NR RASR tương ứng nhánh CF.
+    - canonical_name: "NR RASR VTNET (%)"
+      source_candidates:
+        - "5G RASR CF (%)"
+        - "NR RASR VTNET (%)"
+      unit: "%"
+      direction_preference: "higher_is_better"
+
+    # CB giữ như KPI riêng, không dùng thay cho RASR canonical.
+    - canonical_name: "5G RASR CB (%)"
+      source_candidates:
+        - "5G RASR CB (%)"
+      unit: "%"
+      direction_preference: "informational"
+
+    - canonical_name: "PSCell Change Intra-SgNB SR VTNET (%)"
+      source_candidates:
+        - "PSCell Change Intra-SgNB SR  (%)"
+        - "PSCell Change Intra-SgNB SR (%)"
+        - "PSCell Change Intra-SgNB SR VTNET (%)"
+      unit: "%"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "PSCell Change Inter-SgNB SR VTNET (%)"
+      source_candidates:
+        - "PSCell Change Inter-SgNB SR  (%)"
+        - "PSCell Change Inter-SgNB SR (%)"
+        - "PSCell Change Inter-SgNB SR VTNET (%)"
+      unit: "%"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "NR DL Cell Throughput (Mbps)"
+      source_candidates:
+        - "NR DL Cell Throughput (Mbps)"
+      unit: "Mbps"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "NR UL Cell Throughput (Mbps)"
+      source_candidates:
+        - "NR UL Cell Throughput (Mbps)"
+      unit: "Mbps"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "NR DL User Throughput (Mbps)"
+      source_candidates:
+        - "NR DL User Throughput (Mbps)"
+      unit: "Mbps"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "NR UL User Throughput (Mbps)"
+      source_candidates:
+        - "NR UL User Throughput (Mbps)"
+      unit: "Mbps"
+      direction_preference: "higher_is_better"
+
+    - canonical_name: "TU PRB DL (%)"
+      source_candidates:
+        - "TU PRB DL (%)"
+      unit: "%"
+      direction_preference: "informational"
+
+    - canonical_name: "TU PRB UL (%)"
+      source_candidates:
+        - "TU PRB UL (%)"
+      unit: "%"
+      direction_preference: "informational"
+
+    - canonical_name: "Max RRC Connected NR ENDC User (UE)"
+      source_candidates:
+        - "Max RRC Connected NR ENDC User (UE)"
+      unit: "UE"
+      direction_preference: "informational"
+
+    - canonical_name: "Average RRC Connected NR ENDC User (UE)"
+      source_candidates:
+        - "Average RRC Connected NR ENDC User (UE)"
+      unit: "UE"
+      direction_preference: "informational"
+
+  # Xác nhận nghiệp vụ demo: NSA PS Traffic = DL + UL.
+  derived_kpis:
+    - canonical_name: "NSA PS Traffic (GBytes)"
+      operation: sum
+      source_groups:
+        - ["NR DL PS Traffic (MAC) (GBytes)"]
+        - ["NR UL PS Traffic (MAC) (GBytes)"]
+      unit: "GBytes"
+      direction_preference: "informational"
+      required: false
+
+  counters:
+    - canonical_name: "ENDC SSR Att (#)"
+      source_candidates:
+        - "ENDC SSR Att (#)"
+      unit: "#"
+    - canonical_name: "ENDC SSR Succ (#)"
+      source_candidates:
+        - "ENDC SSR Succ (#)"
+      unit: "#"
+    - canonical_name: "ENDC CDR Total Release (#)"
+      source_candidates:
+        - "ENDC CDR Total Release (#)"
+      unit: "#"
+    - canonical_name: "ENDC CDR Abnormal Release (#)"
+      source_candidates:
+        - "ENDC CDR Abnormal Release (#)"
+      unit: "#"
+    - canonical_name: "Pm.SgNB.SgNBAddReqRcvIniAtt"
+      source_candidates:
+        - "Pm.SgNB.SgNBAddReqRcvIniAtt"
+    - canonical_name: "Pm.SgNB.X2SgNBReconfSuccIniAtt"
+      source_candidates:
+        - "Pm.SgNB.X2SgNBReconfSuccIniAtt"
+    - canonical_name: "Pm.SgNB.AbnormalRelSgNBInitAct"
+      source_candidates:
+        - "Pm.SgNB.AbnormalRelSgNBInitAct"
+    - canonical_name: "Pm.SgNB.AbnormalRelMeNBInitAct"
+      source_candidates:
+        - "Pm.SgNB.AbnormalRelMeNBInitAct"
+
+  # OFF mặc định để demo nhẹ. --discover-all sẽ nhận toàn bộ cột metric còn lại.
+  # Khi bật: Pm.* và cột kết thúc '(#)' -> counter; các cột khác -> KPI informational.
+  auto_discovery:
+    enabled: false
+    counter_prefixes:
+      - "Pm."
+    counter_suffixes:
+      - "(#)"

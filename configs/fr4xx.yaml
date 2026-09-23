@@ -1,0 +1,18 @@
+# Cấu hình chung FR-403/404/405. Không chứa threshold riêng cho từng NE/Cell.
+trend:
+  minimum_clean_days: 14
+  minimum_pair_completeness: 0.70
+  minimum_series_completeness: 0.70
+  seasonal_cycle_minutes: 1440
+  r2_confident_threshold: 0.50
+  stable_relative_slope_per_day: 0.001
+  volatile_residual_ratio: 0.75
+  # FR-404: chỉ suy luận KPI % gần biên 0/100; vùng giữa giữ informational.
+  percent_edge_margin: 25.0
+
+change_point:
+  penalty_scale: 8.0
+  minimum_segment_minutes: 720
+  detect_variance: true
+  # Lưới 2 periods giữ sai số định vị <= 1 period nhưng giảm chi phí demo.
+  search_step_points: 2

@@ -271,3 +271,85 @@ python scripts/run_data_quality_once.py \
 
 MinIO vẫn là raw source of truth; local Parquet chỉ là snapshot analytical để
 tránh query lại cùng một lịch sử dài và không thay thế SQLite metadata.
+
+## CSV demo adapter
+
+Repo có thêm adapter read-only để chạy demo trực tiếp từ wide CSV mà không phụ thuộc MinIO:
+
+```bash
+python scripts/run_csv_collection_once.py \
+  --input /path/to/sample_kpi_counter_1month.csv \
+  --config configs/csv_demo_adapter.yaml \
+  --output tmp/csv_demo_kpi_long.csv
+```
+
+`configs/csv_demo_adapter.yaml` là adaptation boundary. Core RKAA không hardcode tên KPI nguồn:
+
+- `source_candidates` khai báo các alias an toàn của cùng một KPI giữa file/vendor khác nhau.
+- `canonical_name` là tên ổn định mà phần còn lại của RKAA nhìn thấy.
+- KPI không tồn tại trong một nguồn và không `required` sẽ được bỏ qua có báo cáo, không làm hỏng pipeline.
+- `--discover-all` nhận thêm toàn bộ cột metric chưa khai báo; `Pm.*` và cột kết thúc `(#)` được phân loại là counter, còn lại là KPI `informational`.
+- Mapping demo đã được xác nhận: `NR RASR VTNET (%) <- 5G RASR CF (%)`. `5G RASR CB (%)` vẫn là metric riêng.
+- Mapping demo đã được xác nhận: `NSA PS Traffic (GBytes) = NR DL PS Traffic (MAC) (GBytes) + NR UL PS Traffic (MAC) (GBytes)`. Đây là derived metric trong adapter, không phải alias tên.
+- Nếu KPI của nguồn khác chỉ khác tên nhưng cùng semantic, thêm `source_candidates`; nếu khác công thức/split/merge thì dùng derived rule hoặc để metric riêng, không ép alias.
+
+Output luôn giữ contract long-format hiện có:
+`timestamp, period_end, ne_id, cell_id, kpi_name, value, unit, quality_flag, is_counter`.
+
+
+## FR-403 / FR-404 / FR-405 — Trend và Change Point theo NE + Cell
+
+SRS hiện có hai mục cùng ID `FR-404`; trong mã nguồn, mục **Change Point Detection**
+được đặt là **FR-405** để khớp `TC-405` và tránh trùng ID. FR-401/402 vẫn dùng các
+runner hiện có; FR-403/404 và FR-405 được tách runner để mỗi bước có working-set bộ
+nhớ nhỏ, phù hợp dữ liệu dài.
+
+Rule valid pair là rule chung, không tune theo cell: `NE + Cell` phải có ID hợp lệ,
+ít nhất 14 ngày dữ liệu, completeness >= 70%, và có ít nhất một giá trị KPI sử dụng
+được. Sau đó từng series `NE + Cell + KPI` lại được kiểm tra completeness trước STL.
+
+FR-403/404:
+
+```bash
+python scripts/run_trend_analysis_once.py \
+  --input tmp/phase3/baseline_ready_kpi.csv \
+  --granularity-minutes 5 \
+  --mapping-kind minio \
+  --mapping-config configs/kpi_mapping.yaml
+```
+
+Với CSV demo 1 giờ:
+
+```bash
+python scripts/run_trend_analysis_once.py \
+  --input tmp/csv_demo_baseline_ready_kpi.csv \
+  --granularity-minutes 60 \
+  --mapping-kind csv-adapter \
+  --mapping-config configs/csv_demo_adapter.yaml
+```
+
+FR-403 dùng STL để tách `trend + seasonal + residual`, sau đó tính slope/ngày và
+R². Theo BR-05, `R² < 0.5` trả `unclear`. KPI có `higher_is_better` hoặc
+`lower_is_better` được gắn `improving/degrading`; KPI informational chỉ giữ chiều
+`increasing/decreasing` nếu không suy được semantic. Có thể sinh PNG cho một
+`NE + Cell + KPI` bằng cách truyền đủ `--chart-output --chart-ne --chart-cell --chart-kpi`.
+Biểu đồ gồm KPI gốc/imputed, STL trend, slope/ngày, R² và nhãn trend.
+
+PNG FR-401/402/403 dùng canvas `6.0 x 2.6 inch` (giảm 50% theo mỗi chiều so với
+canvas FR-401/402 cũ `12 x 5.2 inch`) để phù hợp demo và báo cáo gọn hơn.
+
+FR-404 chỉ suy luận chiều tốt/xấu tự động cho KPI đơn vị `%` khi phân phối nằm rõ
+về biên 100 hoặc 0 theo `percent_edge_margin`; vùng giữa giữ `informational`. Rule
+này nằm trong `configs/fr4xx.yaml`, không có threshold riêng theo NE/Cell.
+
+FR-405 chạy PELT trên STL trend để tìm level change và trên `residual²` để tìm
+variance change:
+
+```bash
+python scripts/run_changepoint_once.py \
+  --input tmp/fr403/fr403_stl_components.pkl \
+  --granularity-minutes 5
+```
+
+Các summary nhỏ được lưu ở `tmp/fr403/` và `tmp/fr405/`. Point-level STL chỉ dùng
+làm hand-off nội bộ cho FR-405, tránh tạo nhiều bản CSV lớn không cần thiết.

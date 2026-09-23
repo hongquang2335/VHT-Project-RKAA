@@ -12,6 +12,7 @@ dependencies = [
   "matplotlib>=3.8",
   "python-dotenv>=1.0",
   "PyYAML>=6.0",
+  "statsmodels>=0.14",
 ]
 
 [project.optional-dependencies]

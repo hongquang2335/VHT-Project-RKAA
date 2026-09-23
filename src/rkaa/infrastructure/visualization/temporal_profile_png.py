@@ -14,6 +14,8 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
+FIGURE_SIZE_INCHES = (6.0, 2.6)
+
 _REQUIRED_COLUMNS = {
     "ne_id",
     "cell_id",
@@ -65,7 +67,7 @@ def write_temporal_profile_png(
     path = _png_path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(12, 5.2))
+    fig, ax = plt.subplots(figsize=FIGURE_SIZE_INCHES)
     for profile in ("BUSY", "TRANSITION", "OFF_PEAK"):
         subset = selected[selected["temporal_profile"] == profile].sort_values(
             "minute_of_day"

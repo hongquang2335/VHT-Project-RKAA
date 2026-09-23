@@ -93,3 +93,15 @@ def test_fr402_png_writer_generates_png_on_headless_backend(tmp_path: Path) -> N
 
     _assert_png(output)
     assert output.name == "weekly_profile.png"
+
+
+def test_fr401_fr402_use_half_size_demo_canvas() -> None:
+    from rkaa.infrastructure.visualization.temporal_profile_png import (
+        FIGURE_SIZE_INCHES as FR401_SIZE,
+    )
+    from rkaa.infrastructure.visualization.weekly_profile_png import (
+        FIGURE_SIZE_INCHES as FR402_SIZE,
+    )
+
+    assert FR401_SIZE == (6.0, 2.6)
+    assert FR402_SIZE == (6.0, 2.6)

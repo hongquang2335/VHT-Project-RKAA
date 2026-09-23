@@ -14,3 +14,10 @@ tmp/
 output/
 *.duckdb
 *.db
+note.MD
+docs/
+alembic/
+.tmp
+.codex
+.github
+*.patch
