@@ -16,6 +16,7 @@ from rkaa.application.report_generator import (
 
 
 from rkaa.application.report_generator.health_report import FOCUS7_KPIS
+from rkaa.domain.knowledge_base import KnowledgeEntry, KnowledgeStore
 
 def _frame() -> pd.DataFrame:
     ts = pd.date_range("2026-01-01T00:00:00Z", periods=16 * 24, freq="h")
@@ -94,7 +95,7 @@ def test_health_report_html_uses_user_facing_sections_and_no_requirement_ids(tmp
     assert "Bất thường được phát hiện trong kỳ" in text
     assert "5 cặp NE-Cell nổi bật" not in text
     assert "Điểm thay đổi" not in text
-    assert "Giải thích ý nghĩa KPI từ cơ sở tri thức" not in text
+    assert "Ý nghĩa từ Knowledge Base" not in text  # Không có anomaly nên chưa render giải thích.
     assert "FR-" not in text
     assert 'name="viewport"' in text
 
@@ -304,3 +305,56 @@ def test_machine_reference_label_maps_to_daily_reference_period() -> None:
     reference = _reference_period_by_label(period, "24H_TO_144H_AVG")
     assert reference is not None
     assert int((period.end - reference.start).total_seconds() / 3600) == 144
+
+
+def test_fr502_health_report_inserts_approved_meaning_and_marks_missing(tmp_path: Path) -> None:
+    prepared = prepare_health_input(_frame())
+    period = select_health_period(prepared, "last-day")
+    comparison_path = tmp_path / "daily_comparison.csv"
+    comparison = _comparison_for_top_pairs(period.end)
+    # Keep exactly two anomalous KPI rows so we can verify found + missing KB.
+    comparison["anomaly_flag"] = False
+    comparison.loc[0, "anomaly_flag"] = True
+    comparison.loc[1, "anomaly_flag"] = True
+    comparison.loc[0, "delta_percent"] = 5.0
+    comparison.loc[1, "delta_percent"] = -5.0
+    comparison.to_csv(comparison_path, index=False)
+
+    kb_path = tmp_path / "kb.json"
+    store = KnowledgeStore(kb_path)
+    store.upsert(
+        KnowledgeEntry(
+            kpi_name=str(comparison.loc[0, "kpi_name"]),
+            meaning_increase="KPI tăng có ý nghĩa đã được phê duyệt.",
+            meaning_decrease="KPI giảm có ý nghĩa đã được phê duyệt.",
+            approved=True,
+            source="engineer",
+        )
+    )
+    # Newer pending version must not leak into report (BR-06).
+    store.upsert(
+        KnowledgeEntry(
+            kpi_name=str(comparison.loc[0, "kpi_name"]),
+            meaning_increase="PENDING MUST NOT APPEAR",
+            meaning_decrease="PENDING MUST NOT APPEAR",
+            approved=False,
+            source="pending",
+        )
+    )
+
+    output, _, metadata = generate_health_report_html(
+        _frame(),
+        period_kind="last-day",
+        output_path=tmp_path / "report_kb.html",
+        artifacts=HealthReportArtifacts(
+            fr401_comparison=comparison_path,
+            knowledge_store=kb_path,
+        ),
+    )
+    text = output.read_text(encoding="utf-8")
+
+    assert "Ý nghĩa từ Knowledge Base" in text
+    assert "KPI tăng có ý nghĩa đã được phê duyệt." in text
+    assert "PENDING MUST NOT APPEAR" not in text
+    assert "Chưa có tri thức — cần cập nhật" in text
+    assert metadata["knowledge_explained_anomalies"] == 1

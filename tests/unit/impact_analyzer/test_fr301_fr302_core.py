@@ -118,6 +118,7 @@ def test_fr301_fr302_reuses_existing_temporal_and_baseline_cores() -> None:
     )
 
     assert not result.empty
+    assert set(result["impact_type"]) == {"TEST"}
     assert {
         "compare_same_day_type_windows",
         "select_corresponding_history",

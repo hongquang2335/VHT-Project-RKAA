@@ -24,7 +24,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
-from rkaa.domain.knowledge_base import KnowledgeStore
+from rkaa.domain.knowledge_base import KnowledgeBaseService
+
+from .knowledge import enrich_kpi_changes_with_knowledge
 
 
 _REQUIRED_INPUT = {"timestamp", "ne_id", "cell_id", "kpi_name", "value"}
@@ -679,20 +681,25 @@ def _full_anomaly_details(
     ).reset_index(drop=True)
 
 
+def _knowledge_service(artifacts: HealthReportArtifacts) -> KnowledgeBaseService | None:
+    if artifacts.knowledge_store is None or not artifacts.knowledge_store.exists():
+        return None
+    return KnowledgeBaseService.from_path(artifacts.knowledge_store)
+
+
 def _knowledge_snapshot(
-    artifacts: HealthReportArtifacts,
+    service: KnowledgeBaseService | None,
     kpis: list[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    if artifacts.knowledge_store is None or not artifacts.knowledge_store.exists():
+    if service is None:
         return [], []
-    store = KnowledgeStore(artifacts.knowledge_store)
     approved: list[dict[str, Any]] = []
     pending_zero_variance: list[dict[str, Any]] = []
     for kpi in kpis:
-        record = store.latest(kpi, approved_only=True)
+        record = service.get(kpi, approved_only=True)
         if record:
             approved.append(record)
-        latest_any = store.latest_any(kpi)
+        latest_any = service.get(kpi, approved_only=False)
         if latest_any:
             for note in latest_any.get("operational_notes") or []:
                 if isinstance(note, dict) and note.get("kind") == "FR302_ZERO_VARIANCE":
@@ -1250,10 +1257,15 @@ def build_report_model(
     detection = _aligned_detection_snapshot(artifacts, period)
     trend = _trend_snapshot(artifacts, period)
     kpis = sorted(current["kpi_name"].astype(str).unique()) if not current.empty else []
-    approved_kb, pending_zero = _knowledge_snapshot(artifacts, kpis)
+    knowledge_service = _knowledge_service(artifacts)
+    approved_kb, pending_zero = _knowledge_snapshot(knowledge_service, kpis)
     hierarchy_summary = _hierarchy_kpi_summary(current)
     degrading_ne = _degrading_ne_summary(trend.get("trend", pd.DataFrame()))
-    anomaly_details = _full_anomaly_details(detection, period)
+    anomaly_details = enrich_kpi_changes_with_knowledge(
+        _full_anomaly_details(detection, period),
+        knowledge_service,
+        delta_column="delta_percent",
+    )
     period_chart = None
     charts = tuple()
     anomaly_chart_pairs = _build_anomaly_chart_pairs(df, period, anomaly_details)
@@ -1273,6 +1285,9 @@ def build_report_model(
         "anomaly_instances": int(detection.get("anomalies", 0)),
         "distinctive_score": period.distinctive_score,
         "approved_kb_matches": len(approved_kb),
+        "knowledge_explained_anomalies": int(
+            anomaly_details.get("knowledge_available", pd.Series(dtype=bool)).fillna(False).astype(bool).sum()
+        ),
         "pending_zero_variance_notes": len(pending_zero),
         "reference_periods": [
             {"label": ref.label, "start": ref.start.isoformat(), "end": ref.end.isoformat()}
@@ -1516,6 +1531,7 @@ def _render_html(*, title: str, model: ReportModel) -> str:
                 f"<tr><th>Mean tham chiếu</th><td>{_fmt(row.reference_mean)}</td></tr>"
                 f"<tr><th>Delta %</th><td>{delta + '%' if delta != '-' else '-'}</td></tr>"
                 f"<tr><th>Lý do gắn cờ</th><td>{escape(str(row.detection_reason))}</td></tr>"
+                f"<tr><th>Ý nghĩa từ Knowledge Base</th><td>{escape(str(row.knowledge_meaning))}</td></tr>"
                 "</tbody></table>"
                 f"<div class='anomaly-charts single-chart'>{reference_html}</div>"
                 "</div>"
@@ -1634,6 +1650,7 @@ def _pdf_anomaly_pages(pdf: PdfPages, anomalies: pd.DataFrame, chart_pairs: tupl
             f"So với: {row['comparison_basis']}",
             f"Mean kỳ hiện tại: {_fmt(row.get('current_mean'))} | Mean tham chiếu: {_fmt(row.get('reference_mean'))} | Delta: {delta + '%' if delta != '-' else '-'}",
             f"Lý do gắn cờ: {row['detection_reason']}",
+            f"Ý nghĩa từ Knowledge Base: {row.get('knowledge_meaning', 'Chưa có tri thức — cần cập nhật')}",
         ]
         y = 0.86
         for line in lines:

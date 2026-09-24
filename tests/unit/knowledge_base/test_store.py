@@ -54,8 +54,10 @@ def test_fr501_import_json_and_csv(tmp_path: Path) -> None:
     store.import_file(json_path)
     store.import_file(csv_path)
 
-    assert store.latest("A") is not None
-    assert store.latest("B")["unit"] == "%"
+    # BR-06: ordinary imports are pending until an Engineer/Admin approves them.
+    assert store.latest("A") is None
+    assert store.latest_any("A")["approved"] is False
+    assert store.latest_any("B")["unit"] == "%"
 
 
 def test_zero_variance_observation_is_pending_version(tmp_path: Path) -> None:

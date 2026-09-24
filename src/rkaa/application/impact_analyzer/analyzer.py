@@ -308,6 +308,9 @@ class ImpactAnalyzer:
                 {
                     **key,
                     "impact_id": impact.impact_id,
+                    "impact_type": impact.impact_type,
+                    "impact_description": impact.description,
+                    "impact_operator": impact.operator,
                     "pre_start": pre_start,
                     "pre_end": pre_end,
                     "post_start": post_start,
