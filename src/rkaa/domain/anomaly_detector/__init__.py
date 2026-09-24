@@ -1,3 +1,9 @@
-from rkaa.domain.anomaly_detector.changepoint import ChangePointConfig, ChangePointDetector
+"""Anomaly detector for FR-302."""
 
-__all__ = ["ChangePointConfig", "ChangePointDetector"]
+from rkaa.domain.anomaly_detector.detector import (
+    AnomalyDecision,
+    AnomalyDetector,
+    ThresholdRule,
+)
+
+__all__ = ["AnomalyDecision", "AnomalyDetector", "ThresholdRule"]

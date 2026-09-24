@@ -219,8 +219,9 @@ def test_html_lists_every_anomaly_with_comparison_reason_and_chart(tmp_path: Pat
     assert "Lý do gắn cờ" in text
     assert "Nguyên nhân vận hành" not in text
     assert "quy tắc 3-sigma" in text
-    assert "Biểu đồ 1" in text
-    assert "Biểu đồ 2" in text
+    assert "Biểu đồ so sánh" in text
+    assert "Biểu đồ 1" not in text
+    assert "Biểu đồ 2" not in text
     assert "data:image/png;base64" in text
     assert "5 cặp NE-Cell nổi bật" not in text
     assert "5G RASR CB (%)" not in text

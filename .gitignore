@@ -14,3 +14,11 @@ tmp/
 output/
 *.duckdb
 *.db
+*.patch
+.env.example
+.agents
+.codex
+.github
+.tmp
+note.MD
+*.csv

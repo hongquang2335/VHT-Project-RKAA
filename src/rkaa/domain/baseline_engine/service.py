@@ -175,6 +175,44 @@ class BaselineEngine:
         result["baseline_reliable"] = result["clean_day_count"] >= minimum_clean_days
         return result
 
+
+    def select_corresponding_history(
+        self,
+        history_df: pd.DataFrame,
+        target_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Chọn baseline lịch sử cùng giờ và cùng ngày trong tuần với target.
+
+        Đây là primitive dùng chung cho FR-301: history và target phải đã đi qua
+        FR-401 + FR-402 để có ``temporal_profile``, ``day_of_week`` và
+        ``minute_of_day``. Không nhân bản logic baseline trong impact analyzer.
+        """
+
+        keys = [
+            "ne_id",
+            "cell_id",
+            "kpi_name",
+            "temporal_profile",
+            "day_of_week",
+            "minute_of_day",
+        ]
+        for name, frame in (("history", history_df), ("target", target_df)):
+            missing = sorted(set(keys).difference(frame.columns))
+            if missing:
+                raise ValueError(
+                    f"{name} thiếu cột để chọn baseline tương ứng: {', '.join(missing)}"
+                )
+
+        target_keys = target_df[keys].drop_duplicates()
+        if target_keys.empty:
+            return history_df.iloc[0:0].copy()
+        return history_df.merge(
+            target_keys,
+            how="inner",
+            on=keys,
+            validate="many_to_many",
+        )
+
     def attach_baseline(
         self,
         profiled_df: pd.DataFrame,

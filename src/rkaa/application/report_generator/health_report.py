@@ -1159,14 +1159,8 @@ def _build_anomaly_chart_pairs(
             {
                 "key": (str(row["ne_id"]), str(row["cell_id"]), str(row["kpi_name"]), str(row["comparison_basis"])),
                 "label": f"#{idx + 1} {row['ne_id']} / {row['cell_id']} — {row['kpi_name']}",
-                "current_chart": _make_anomaly_chart(
-                    df,
-                    period,
-                    {"aligned_frame": pd.DataFrame([row])},
-                    str(row["ne_id"]),
-                    str(row["cell_id"]),
-                    str(row["kpi_name"]),
-                ),
+                # Một biểu đồ là đủ: biểu đồ so sánh này đã chứa cả chu kỳ hiện tại
+                # và baseline tham chiếu, đồng thời giữ vùng tô bất thường.
                 "reference_chart": _make_reference_comparison_chart(df, period, row),
             }
         )
@@ -1506,19 +1500,12 @@ def _render_html(*, title: str, model: ReportModel) -> str:
             delta = _fmt(row.delta_percent, 2)
             chart_key = (str(row.ne_id), str(row.cell_id), str(row.kpi_name), str(row.comparison_basis))
             chart_pair = chart_pair_map.get(chart_key, {})
-            current_html = ""
             reference_html = ""
-            if chart_pair.get("current_chart") is not None:
-                current_html = (
-                    f'<figure class="anomaly-chart"><img alt="current-{index}" '
-                    f'src="data:image/png;base64,{base64.b64encode(chart_pair["current_chart"]).decode("ascii")}">'
-                    '<figcaption>Biểu đồ 1 — diễn biến KPI trong kỳ hiện tại; vùng bất thường dùng cùng màu với Biểu đồ 2 để đối chiếu.</figcaption></figure>'
-                )
             if chart_pair.get("reference_chart") is not None:
                 reference_html = (
-                    f'<figure class="anomaly-chart"><img alt="reference-{index}" '
+                    f'<figure class="anomaly-chart"><img alt="comparison-{index}" '
                     f'src="data:image/png;base64,{base64.b64encode(chart_pair["reference_chart"]).decode("ascii")}">'
-                    f'<figcaption>Biểu đồ 2 — chu kỳ hiện tại so với baseline tham chiếu: {escape(str(row.comparison_basis))}; vùng bất thường giữ đúng màu như Biểu đồ 1.</figcaption></figure>'
+                    f'<figcaption>Biểu đồ so sánh — chu kỳ hiện tại và baseline tham chiếu: {escape(str(row.comparison_basis))}; vùng tô màu là khoảng thời gian bị gắn cờ bất thường.</figcaption></figure>'
                 )
             item_blocks.append(
                 "<div class='anomaly-item'>"
@@ -1530,12 +1517,12 @@ def _render_html(*, title: str, model: ReportModel) -> str:
                 f"<tr><th>Delta %</th><td>{delta + '%' if delta != '-' else '-'}</td></tr>"
                 f"<tr><th>Lý do gắn cờ</th><td>{escape(str(row.detection_reason))}</td></tr>"
                 "</tbody></table>"
-                f"<div class='anomaly-charts'>{current_html}{reference_html}</div>"
+                f"<div class='anomaly-charts single-chart'>{reference_html}</div>"
                 "</div>"
             )
         anomaly_html = (
             f"<p>Liệt kê đầy đủ <b>{len(anomalies)}</b> phép so sánh bị gắn cờ trong kỳ. "
-            "Mỗi mục nêu KPI bất thường, baseline tham chiếu, lý do detector gắn cờ và hai biểu đồ liên quan.</p>"
+            "Mỗi mục nêu KPI bất thường, baseline tham chiếu, lý do detector gắn cờ và một biểu đồ so sánh chu kỳ hiện tại với baseline.</p>"
             + "".join(item_blocks)
         )
 
@@ -1552,7 +1539,7 @@ body{{font-family:Arial,sans-serif;margin:0;background:#f4f6f8;color:#1f2937}}ma
 header{{background:#fff;padding:18px;border-radius:12px;margin-bottom:16px}}h1{{margin:0 0 6px}}h2{{margin-top:0}}h3{{margin-top:18px}}.muted{{color:#64748b}}
 .metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:14px 0}}.metric,section{{background:#fff;border-radius:12px;padding:14px}}
 .metric span{{display:block;color:#64748b;font-size:12px}}.metric b{{font-size:23px}}section{{margin:14px 0;overflow:auto}}table{{width:100%;border-collapse:collapse;font-size:12px}}th,td{{padding:7px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}}th{{background:#f8fafc;position:sticky;top:0}}
-.notice{{border-left:4px solid #f59e0b;background:#fffbeb;padding:10px 12px;border-radius:6px;margin:10px 0}}.anomaly-row{{background:#fff7f7}}.anomaly-row:hover{{background:#fee2e2}}.ne-id{{vertical-align:top;background:#f8fafc}}.anomaly-item{{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin:12px 0;background:#fcfcfd}}.anomaly-item h3{{margin-top:0}}.anomaly-item table{{margin-top:8px}}.anomaly-item th{{width:180px;position:static;background:#f8fafc}}.anomaly-charts{{display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:14px;margin-top:12px}}figure.anomaly-chart{{margin:0;border:1px solid #e5e7eb;border-radius:10px;padding:8px;background:#fff}}figure.anomaly-chart img{{width:100%;height:auto}}figure.anomaly-chart figcaption{{font-size:12px;color:#64748b;margin-top:5px}}
+.notice{{border-left:4px solid #f59e0b;background:#fffbeb;padding:10px 12px;border-radius:6px;margin:10px 0}}.anomaly-row{{background:#fff7f7}}.anomaly-row:hover{{background:#fee2e2}}.ne-id{{vertical-align:top;background:#f8fafc}}.anomaly-item{{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin:12px 0;background:#fcfcfd}}.anomaly-item h3{{margin-top:0}}.anomaly-item table{{margin-top:8px}}.anomaly-item th{{width:180px;position:static;background:#f8fafc}}.anomaly-charts{{display:grid;grid-template-columns:repeat(auto-fit,minmax(500px,1fr));gap:14px;margin-top:12px}}.anomaly-charts.single-chart{{grid-template-columns:minmax(0,900px);justify-content:start}}figure.anomaly-chart{{margin:0;border:1px solid #e5e7eb;border-radius:10px;padding:8px;background:#fff}}figure.anomaly-chart img{{width:100%;height:auto}}figure.anomaly-chart figcaption{{font-size:12px;color:#64748b;margin-top:5px}}
 @media(max-width:600px){{main{{padding:10px}}th,td{{font-size:11px;padding:5px}}.anomaly-charts{{grid-template-columns:1fr}}}}
 @media print{{body{{background:#fff}}header,section{{break-inside:auto}}th{{position:static}}}}
 </style></head><body><main>
@@ -1656,19 +1643,12 @@ def _pdf_anomaly_pages(pdf: PdfPages, anomalies: pd.DataFrame, chart_pairs: tupl
 
         chart_key = (str(row['ne_id']), str(row['cell_id']), str(row['kpi_name']), str(row['comparison_basis']))
         pair = chart_pair_map.get(chart_key)
-        if pair is not None:
-            if pair.get("current_chart") is not None:
-                ax1 = fig.add_axes([0.08, 0.43, 0.84, 0.26])
-                ax1.axis("off")
-                image = plt.imread(io.BytesIO(pair["current_chart"]), format="png")
-                ax1.imshow(image)
-                ax1.set_title("Biểu đồ 1 — KPI trong kỳ hiện tại", fontsize=10.5)
-            if pair.get("reference_chart") is not None:
-                ax2 = fig.add_axes([0.08, 0.08, 0.84, 0.26])
-                ax2.axis("off")
-                image = plt.imread(io.BytesIO(pair["reference_chart"]), format="png")
-                ax2.imshow(image)
-                ax2.set_title("Biểu đồ 2 — Chu kỳ hiện tại so với baseline tham chiếu", fontsize=10.5)
+        if pair is not None and pair.get("reference_chart") is not None:
+            ax_chart = fig.add_axes([0.08, 0.16, 0.84, 0.48])
+            ax_chart.axis("off")
+            image = plt.imread(io.BytesIO(pair["reference_chart"]), format="png")
+            ax_chart.imshow(image)
+            ax_chart.set_title("Chu kỳ hiện tại so với baseline tham chiếu", fontsize=10.5)
 
         pdf.savefig(fig)
         plt.close(fig)
